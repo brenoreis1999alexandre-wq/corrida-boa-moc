@@ -64,6 +64,10 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Configurações salvas", Toast.LENGTH_SHORT).show()
         })
 
+        content.addView(button("Ver histórico das ofertas") {
+            startActivity(Intent(this, HistoryActivity::class.java))
+        })
+
         content.addView(button("Permitir janela flutuante") {
             if (!Settings.canDrawOverlays(this)) {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
