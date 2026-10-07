@@ -5,6 +5,7 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 ## Funcionalidades
 
 - Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
+- Ao detectar oferta com dados suficientes, mostra cálculo visual automático e silencioso; o cartão desaparece sozinho após 5 segundos.
 - Toque na bolha para fazer OCR da tela atual; segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
 - A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.

@@ -23,6 +23,7 @@ internal object OverlayManager {
 
     private const val POS_X = "bubble_position_x"
     private const val POS_Y = "bubble_position_y"
+    private const val RESULT_VISIBLE_MS = 5_000L
     private var windowManager: WindowManager? = null
     private var bubbleView: TextView? = null
     private var resultView: LinearLayout? = null
@@ -191,7 +192,7 @@ internal object OverlayManager {
                 windowManager = wm
                 resultView = card
                 handler.removeCallbacks(removeResultTask)
-                handler.postDelayed(removeResultTask, 18_000)
+                handler.postDelayed(removeResultTask, RESULT_VISIBLE_MS)
             } catch (_: Exception) {
                 removeResult()
             }

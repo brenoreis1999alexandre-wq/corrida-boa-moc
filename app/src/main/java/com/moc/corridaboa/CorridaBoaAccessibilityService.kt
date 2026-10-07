@@ -268,13 +268,11 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             else -> "CORRIDA RUIM — NÃO ACEITAR"
         }
         val details = """$title
-Valor da oferta (bruto): ${fare.money()}
-Combustível estimado: -${fuelCost.money()}
-Sobra estimada para você: ${net.money()}
-Busca ${kmBusca.oneDecimal()} km + viagem ${kmViagem.oneDecimal()} km = ${totalKm.oneDecimal()} km • ${tempoTotal.oneDecimal()} min
-Seus ganhos líquidos: ${netKm.money()}/km • ${netHour.money()}/h • ${netMinute.money()}/min
-Metas atingidas: km ${if (meetsKm) "sim" else "não"} • hora ${if (meetsHour) "sim" else "não"} • minuto ${if (meetsMinute) "sim" else "não"}
-Bruto: ${grossKm.money()}/km • ${grossHour.money()}/h • ${grossMinute.money()}/min"""
+Oferta: ${fare.money()} • Combustível: -${fuelCost.money()}
+Sobra estimada: ${net.money()}
+Trajeto total: ${totalKm.oneDecimal()} km • ${tempoTotal.oneDecimal()} min
+Líquido: ${netKm.money()}/km • ${netHour.money()}/h • ${netMinute.money()}/min
+Metas atingidas: km ${if (meetsKm) "sim" else "não"} • hora ${if (meetsHour) "sim" else "não"} • min ${if (meetsMinute) "sim" else "não"}"""
         OverlayManager.show(this, details, status)
     }
 
