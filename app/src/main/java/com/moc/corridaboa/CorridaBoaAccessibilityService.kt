@@ -34,11 +34,14 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
             return
         }
         val root = rootInActiveWindow ?: return
-        val screenText = collectText(root).replace('
-', ' ').replace(Regex("\s+"), " ").trim()
+        val screenText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         val price = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble() ?: return
-        val distances = KM.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.replace(',', '.')?.toDoubleOrNull() }.toList()
-        val minutes = MINUTES.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toDoubleOrNull() }.take(2).toList()
+        val distances = KM.findAll(screenText)
+            .mapNotNull { it.groupValues.getOrNull(1)?.replace(',', '.')?.toDoubleOrNull() }
+            .toList()
+        val minutes = MINUTES.findAll(screenText)
+            .mapNotNull { it.groupValues.getOrNull(1)?.replace(',', '.')?.toDoubleOrNull() }
+            .take(2).toList()
         if (distances.isEmpty() || minutes.isEmpty()) {
             val sig = "incompleto:$price:${screenText.hashCode()}"
             if (shouldAnnounce(sig)) {
@@ -49,7 +52,7 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
             return
         }
 
-        // Quando só aparece uma distância, ela é tratada como total; não inventamos km de busca.
+        // Com uma distância só, ela é tratada como total; não inventamos km de busca.
         val kmBusca = if (distances.size >= 2) distances.first() else 0.0
         val kmViagem = if (distances.size >= 2) distances[1] else distances.first()
         val kmTotal = kmBusca + kmViagem
@@ -79,13 +82,13 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
             OverlayManager.MAYBE -> "COMPENSA — AVALIE"
             else -> "CORRIDA RUIM — NÃO ACEITAR"
         }
-        val details = "$title
+        val details = """$title
 Oferta: ${price.money()}
 Buscar: ${kmBusca.oneDecimal()} km  •  Viagem: ${kmViagem.oneDecimal()} km
 Total: ${kmTotal.oneDecimal()} km  •  Tempo: ${tempoTotal.oneDecimal()} min
 Combustível estimado: ${fuelCost.money()}
 Líquido estimado: ${net.money()}
-${hourly.money()}/h  •  ${perMinute.money()}/min  •  ${perKm.money()}/km"
+${hourly.money()}/h  •  ${perMinute.money()}/min  •  ${perKm.money()}/km"""
         OverlayManager.show(this, details, status)
         val spoken = when (status) {
             OverlayManager.GOOD -> "Corrida boa. Pegar corrida."
@@ -128,12 +131,15 @@ ${hourly.money()}/h  •  ${perMinute.money()}/min  •  ${perKm.money()}/km"
     }
 
     companion object {
-        private val PRICE = Regex("R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)", RegexOption.IGNORE_CASE)
-        private val KM = Regex("([0-9]+(?:[.,][0-9]+)?)\s?km", RegexOption.IGNORE_CASE)
-        private val MINUTES = Regex("([0-9]+(?:[.,][0-9]+)?)\s?min", RegexOption.IGNORE_CASE)
+        private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
+        private val KM = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?km""", RegexOption.IGNORE_CASE)
+        private val MINUTES = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?min""", RegexOption.IGNORE_CASE)
     }
 }
 
-private fun String.toBrazilianDouble(): Double? = replace(".", "").replace(',', '.').toDoubleOrNull()
+private fun String.toBrazilianDouble(): Double? {
+    val normalized = trim().let { if (it.contains(',')) it.replace(".", "").replace(',', '.') else it }
+    return normalized.toDoubleOrNull()
+}
 private fun Double.money(): String = "R$ " + String.format(Locale("pt", "BR"), "%.2f", this)
 private fun Double.oneDecimal(): String = String.format(Locale("pt", "BR"), "%.1f", this)
