@@ -1,42 +1,38 @@
-# Corrida Boa MOC (projeto Android)
+# Corrida Boa MOC
 
-App Android para estimar se uma oferta de corrida compensa, mostrando uma sobreposição e falando uma recomendação. O app não aceita nem recusa corridas e não toca nos controles do Uber/99.
+App Android para ajudar motorista a analisar ofertas de corrida em Montes Claros. Lê o texto visível dos apps de motorista configurados, calcula indicadores, fala uma recomendação e registra ofertas em histórico local.
 
-## O que está implementado
+## Funcionalidades
 
-- Preferências locais para gasolina, consumo, mínimo de R$/hora, meta de R$/hora e meta de R$/km líquido.
-- Serviço de Acessibilidade limitado aos pacotes de apps de motorista configurados no XML.
-- Leitura heurística de preço, distâncias em km e duração em minutos visíveis na oferta.
-- Cálculo de custo aproximado de combustível, líquido estimado, R$/hora, R$/minuto e R$/km.
-- Recomendação falada e painel flutuante temporário; dados ficam no aparelho.
-- Se faltarem km ou minutos legíveis, avisa que a leitura está incompleta em vez de recomendar aceitar.
+- Permissões guiadas para janela flutuante e Serviço de Acessibilidade.
+- Leitura heurística de valor, km, tempo e, quando exposto pela tela, origem/destino.
+- Cálculo de custo estimado de combustível, lucro após combustível e métricas brutas e líquidas por hora, minuto e km.
+- Painel flutuante e anúncio falado: **BOA — ACEITAR**, **MÉDIA — AVALIAR** ou **RUIM — NÃO ACEITAR**.
+- Histórico local das ofertas com data, origem, destino, preço, distâncias, duração, custos, lucro e recomendação.
+- Configurações locais de combustível, consumo e limites de decisão.
 
-## Critério padrão
+## Critérios padrão
 
-- **Corrida ruim — não aceitar:** líquido estimado menor ou igual a zero, ou abaixo de R$ 25/h.
-- **Corrida boa — pegar:** pelo menos R$ 35/h e R$ 2,00 líquidos por km.
-- **Compensa — avalie:** demais ofertas acima do mínimo.
+- **RUIM — NÃO ACEITAR:** lucro após combustível ≤ 0 ou ganho líquido abaixo de R$ 25/h.
+- **BOA — ACEITAR:** ganho líquido de pelo menos R$ 35/h e pelo menos R$ 2,00 líquidos/km.
+- **MÉDIA — AVALIAR:** demais ofertas acima do mínimo.
 
-Os valores podem ser alterados na tela inicial. As estimativas consideram combustível, não incluem manutenção, pneus, depreciação, impostos ou outros custos.
+Os limites podem ser personalizados. O cálculo de custos inclui combustível estimado; não inclui manutenção, pneus, depreciação, impostos ou outros gastos do veículo. O painel exibe medidas brutas e líquidas separadamente.
 
 ## Abrir e gerar o APK
 
-1. Abra esta pasta no Android Studio (JDK 17 e Android SDK 35).
-2. Aguarde a sincronização do Gradle e use **Build > Build APK(s)**.
-3. O APK de teste ficará em `app/build/outputs/apk/debug/app-debug.apk`.
-
-Também há um workflow em `.github/workflows/android-build.yml` que pode gerar um APK de teste em GitHub Actions; o arquivo aparece como artefato da execução.
+Abra esta pasta no Android Studio com JDK 17 e Android SDK 35. Aguarde a sincronização e use **Build > Build APK(s)**. O APK de teste aparece em `app/build/outputs/apk/debug/app-debug.apk`. O workflow do GitHub Actions também compila o APK e o disponibiliza como artefato da execução.
 
 ## Ativar no telefone
 
 1. Instale o APK e abra Corrida Boa MOC.
-2. Ajuste gasolina e consumo do seu veículo.
-3. Conceda **Permitir janela flutuante**.
-4. Em Acessibilidade, ative o serviço **Corrida Boa MOC**.
-5. Faça testes com ofertas reais paradas, comparando o que o app leu com a tela antes de confiar na recomendação.
+2. Configure o preço da gasolina e o consumo do veículo.
+3. Conceda a permissão de sobrepor outros apps.
+4. Em Acessibilidade, ative o serviço Corrida Boa MOC.
+5. Teste com cuidado em ofertas reais e confirme cada número na tela antes de decidir.
 
-## Limitações importantes
+## Privacidade e limitações
 
-A extração depende de como cada versão do Uber Driver/99 Driver expõe texto à Acessibilidade. Layouts e versões podem mudar, e o serviço pode não reconhecer uma oferta ou associar uma distância/tempo incorretamente. O projeto usa uma heurística inicial e precisa ser testado no aparelho do motorista; nunca aceite ou recuse uma corrida só com base no app. O serviço de Acessibilidade lê o conteúdo visível das telas dos apps listados para fazer os cálculos localmente. Não envia esse conteúdo para servidor.
+Histórico e configurações ficam no banco de dados local do aparelho; o app não tem permissão de internet e não envia conteúdo para servidor. O serviço lê conteúdo de tela dos pacotes de motorista configurados exclusivamente para calcular e registrar localmente.
 
-O projeto não é afiliado ao Uber ou à 99. O uso de Acessibilidade, sobreposição e distribuição do APK deve respeitar os termos das plataformas e as regras aplicáveis.
+A extração depende de como cada versão do Uber Driver/99 Driver disponibiliza os textos para Acessibilidade. Endereços, tempos e distâncias podem não estar acessíveis ou podem ser associados incorretamente; por isso, o app precisa ser testado no telefone e a leitura conferida antes de usar. Ele não clica, aceita ou recusa corridas. Não é afiliado ao Uber, 99 ou GanhoPro.
