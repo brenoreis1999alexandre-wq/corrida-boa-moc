@@ -6,4 +6,4 @@
     android:canRetrieveWindowContent="true"
     android:canTakeScreenshot="true"
     android:description="@string/accessibility_desc"
-    android:packageNames="com.ubercab.driver,com.d99.android.driver,com.99Taxis.driver,com.didi.driver,sinet.startup.inDriver" />
+    android:packageNames="com.ubercab.driver,com.app99.driver,com.d99.android.driver,com.99Taxis.driver,com.didi.driver,sinet.startup.inDriver" />

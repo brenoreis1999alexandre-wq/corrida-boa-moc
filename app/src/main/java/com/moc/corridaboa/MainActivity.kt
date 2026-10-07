@@ -2,6 +2,7 @@ package com.moc.corridaboa
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -434,9 +435,11 @@ class MainActivity : Activity() {
     }
 
     private fun isServiceEnabled(): Boolean {
-        val expected = "$packageName/${CorridaBoaAccessibilityService::class.java.name}"
+        val expected = ComponentName(this, CorridaBoaAccessibilityService::class.java)
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
-        return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+        return enabled.split(':').mapNotNull { ComponentName.unflattenFromString(it) }.any {
+            it.packageName == expected.packageName && it.className == expected.className
+        }
     }
 
     private fun startOfToday(): Long = Calendar.getInstance().apply {

@@ -30,7 +30,7 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
     private val handler = Handler(Looper.getMainLooper())
     private val textRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private val supportedPackages = setOf(
-        "com.ubercab.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver",
+        "com.ubercab.driver", "com.app99.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver",
         "sinet.startup.inDriver"
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
