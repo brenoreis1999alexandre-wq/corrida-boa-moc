@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -40,7 +41,16 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(content) }
         setContentView(scroll)
 
-        content.addView(text("CORRIDA BOA MOC", 25, Color.WHITE, true))
+        val brandHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        brandHeader.addView(ImageView(this).apply { setImageResource(R.drawable.ic_launcher) }, LinearLayout.LayoutParams(dp(68), dp(68)))
+        val brandCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brandCopy.addView(text("RotaLume", 25, Color.WHITE, true))
+        brandCopy.addView(text("Seu copiloto de corridas • MOC", 13, Color.rgb(0, 214, 121), true))
+        brandHeader.addView(brandCopy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        content.addView(brandHeader)
         content.addView(text("Configure seus custos e os critérios das recomendações.", 15, Color.LTGRAY))
         content.addView(text("Os valores ficam salvos somente neste aparelho.", 13, Color.LTGRAY))
 
@@ -117,6 +127,8 @@ class MainActivity : Activity() {
         text = label
         setOnClickListener { action() }
         isAllCaps = false
+        backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(0, 214, 121))
+        setTextColor(Color.rgb(8, 20, 16))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(8) }
     }
 

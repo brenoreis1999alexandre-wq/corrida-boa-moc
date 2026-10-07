@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'downloads/**'
 permissions:
   contents: read
 jobs:

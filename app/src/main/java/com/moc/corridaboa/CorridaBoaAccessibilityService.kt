@@ -3,6 +3,7 @@ package com.moc.corridaboa
 import android.accessibilityservice.AccessibilityService
 import android.speech.tts.TextToSpeech
 import android.view.accessibility.AccessibilityEvent
+import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
 import java.util.Locale
 import kotlin.math.max
@@ -12,6 +13,8 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
     private var ttsReady = false
     private var lastSignature = ""
     private var lastAnnouncedAt = 0L
+    private var lastRidePackage: String? = null
+    private var lastRideScreenText: String? = null
     private val supportedPackages = setOf(
         "com.ubercab.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver"
     )
@@ -21,6 +24,9 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
     override fun onServiceConnected() {
         super.onServiceConnected()
         tts = TextToSpeech(this, this)
+        if (Settings.canDrawOverlays(this)) {
+            OverlayManager.showFloatingButton(this) { rereadCurrentOffer() }
+        }
     }
 
     override fun onInit(status: Int) {
@@ -31,11 +37,37 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
         if (pkg !in supportedPackages) {
-            lastSignature = ""
+            if (pkg != packageName) {
+                lastSignature = ""
+                lastRidePackage = null
+                lastRideScreenText = null
+            }
             return
+        }
+        if (Settings.canDrawOverlays(this)) {
+            OverlayManager.showFloatingButton(this) { rereadCurrentOffer() }
         }
         val root = rootInActiveWindow ?: return
         val screenText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+        lastRidePackage = pkg
+        lastRideScreenText = screenText
+        analyzeScreen(pkg, screenText, manual = false)
+    }
+
+    private fun rereadCurrentOffer() {
+        val pkg = lastRidePackage
+        val text = lastRideScreenText
+        if (pkg == null || text == null) {
+            val warning = "Abra o app de motorista e aguarde uma oferta para ler."
+            OverlayManager.show(this, warning, OverlayManager.WARNING)
+            speak(warning)
+            return
+        }
+        analyzeScreen(pkg, text, manual = true)
+    }
+
+    private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
+        val screenText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         val fare = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble() ?: return
 
         // Em telas que mostram “10 min (3,9 km)” e “21 min (8,5 km)”, usa cada trecho e endereço.
@@ -86,13 +118,18 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
             else -> OverlayManager.MAYBE
         }
         val signature = listOf(pkg, fare, kmBusca, kmViagem, tempoTotal, pickup, dropoff).joinToString("|")
-        if (!shouldAnnounce(signature)) return
-
-        val record = RideRecord(
-            System.currentTimeMillis(), pickup, dropoff, fare, kmBusca, kmViagem, tempoTotal, fuelCost, net,
-            grossHour, grossKm, grossMinute, netHour, netKm, netMinute, status
-        )
-        runCatching { history.save(record) }
+        val now = System.currentTimeMillis()
+        val duplicate = signature == lastSignature && now - lastAnnouncedAt < 180_000
+        if (duplicate && !manual) return
+        if (!duplicate) {
+            lastSignature = signature
+            lastAnnouncedAt = now
+            val record = RideRecord(
+                now, pickup, dropoff, fare, kmBusca, kmViagem, tempoTotal, fuelCost, net,
+                grossHour, grossKm, grossMinute, netHour, netKm, netMinute, status
+            )
+            runCatching { history.save(record) }
+        }
 
         val title = when (status) {
             OverlayManager.GOOD -> "CORRIDA BOA — ACEITAR"

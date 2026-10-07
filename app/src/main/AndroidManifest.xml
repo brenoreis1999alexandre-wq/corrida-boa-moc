@@ -3,13 +3,14 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
         android:allowBackup="false"
-        android:label="Corrida Boa MOC"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:supportsRtl="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="Corrida Boa MOC">
+            android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -21,7 +22,7 @@
             android:label="Histórico de ofertas" />
         <service
             android:name=".CorridaBoaAccessibilityService"
-            android:label="Corrida Boa MOC"
+            android:label="@string/app_name"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
