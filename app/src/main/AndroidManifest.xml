@@ -15,6 +15,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".HistoryActivity"
+            android:exported="false"
+            android:label="Histórico de ofertas" />
         <service
             android:name=".CorridaBoaAccessibilityService"
             android:label="Corrida Boa MOC"
