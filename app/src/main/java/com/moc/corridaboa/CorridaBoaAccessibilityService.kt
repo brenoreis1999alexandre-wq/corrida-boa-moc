@@ -160,5 +160,5 @@ private fun String.toBrazilianDouble(): Double? {
     return normalized.toDoubleOrNull()
 }
 private fun String.cleanRouteText(): String = replace(Regex("""\s+"""), " ").trim().trim(' ', '-', '•', '|').take(150)
-private fun Double.money(): String = "R$ " + String.format(Locale("pt", "BR"), "%.2f", this)
-private fun Double.oneDecimal(): String = String.format(Locale("pt", "BR"), "%.1f", this)
+internal fun Double.money(): String = "R$ " + String.format(Locale("pt", "BR"), "%.2f", this)
+internal fun Double.oneDecimal(): String = String.format(Locale("pt", "BR"), "%.1f", this)
