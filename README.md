@@ -33,7 +33,7 @@ O cálculo considera somente combustível, não manutenção, pneus, depreciaç�
 
 ## Build
 
-O workflow GitHub Actions compila APKs de teste ao atualizar o código. Abra o projeto no Android Studio com JDK 17 e Android SDK 35 ou use o APK publicado na pasta `downloads/`.
+O workflow GitHub Actions compila APKs de teste e publica o arquivo em GitHub Releases ao atualizar o código. Abra o projeto no Android Studio com JDK 17 e Android SDK 35.
 
 ## Privacidade e limitações
 

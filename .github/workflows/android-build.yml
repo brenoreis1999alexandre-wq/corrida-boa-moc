@@ -6,7 +6,7 @@ on:
     paths-ignore:
       - 'downloads/**'
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,3 +34,18 @@ jobs:
           name: corrida-boa-moc-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Publish APK download on GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(sed -n 's/.*versionName = \"\([^\"]*\)\".*/\1/p' app/build.gradle.kts)"
+          TAG="v$VERSION"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK#RotaLume-v$VERSION.apk" --clobber
+          else
+            gh release create "$TAG" "$APK#RotaLume-v$VERSION.apk" \
+              --title "RotaLume v$VERSION" \
+              --notes "APK de teste compilado automaticamente pelo GitHub Actions." \
+              --prerelease
+          fi
