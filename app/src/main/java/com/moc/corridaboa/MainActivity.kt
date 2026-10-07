@@ -1,105 +1,424 @@
 package com.moc.corridaboa
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
+import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import android.text.InputType
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 class MainActivity : Activity() {
+    private lateinit var pageHost: FrameLayout
     private lateinit var gas: EditText
     private lateinit var consumo: EditText
     private lateinit var minHora: EditText
     private lateinit var boaHora: EditText
     private lateinit var minKm: EditText
-    private lateinit var permissions: TextView
+    private var selectedTab = 0
+    private var historyFilter = 1 // current month
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
+
+    private val bg = Color.rgb(13, 19, 36)
+    private val surface = Color.rgb(27, 37, 62)
+    private val surface2 = Color.rgb(37, 49, 79)
+    private val accent = Color.rgb(71, 226, 188)
+    private val lime = Color.rgb(67, 222, 145)
+    private val pale = Color.rgb(234, 241, 255)
+    private val secondary = Color.rgb(158, 174, 209)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(15, 17, 21)
-        window.navigationBarColor = Color.rgb(15, 17, 21)
-        window.decorView.systemUiVisibility = 0
-
-        val content = LinearLayout(this).apply {
+        window.statusBarColor = bg
+        window.navigationBarColor = bg
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(24))
-            setBackgroundColor(Color.rgb(15, 17, 21))
+            setBackgroundColor(bg)
         }
-        val scroll = ScrollView(this).apply { addView(content) }
-        setContentView(scroll)
+        pageHost = FrameLayout(this)
+        root.addView(pageHost, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(bottomNavigation(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(68)))
+        setContentView(root)
+        renderTab()
+    }
 
-        val brandHeader = LinearLayout(this).apply {
+    override fun onResume() {
+        super.onResume()
+        if (::pageHost.isInitialized && selectedTab == 0) renderTab()
+    }
+
+    private fun renderTab() {
+        if (!::pageHost.isInitialized) return
+        pageHost.removeAllViews()
+        val page = when (selectedTab) {
+            1 -> historyPage()
+            2 -> settingsPage()
+            else -> dashboardPage()
+        }
+        pageHost.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    private fun bottomNavigation(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        setPadding(dp(7), dp(5), dp(7), dp(6))
+        setBackgroundColor(Color.rgb(20, 29, 49))
+        val items = listOf("⌂" to "Painel", "▤" to "Histórico", "⚙" to "Ajustes")
+        items.forEachIndexed { index, item ->
+            val navItem = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                val active = selectedTab == index
+                val tint = if (active) accent else secondary
+                addView(TextView(this@MainActivity).apply {
+                    text = item.first
+                    textSize = 20f
+                    setTextColor(tint)
+                    gravity = Gravity.CENTER
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = item.second
+                    textSize = 11f
+                    setTextColor(tint)
+                    gravity = Gravity.CENTER
+                })
+                setOnClickListener {
+                    selectedTab = index
+                    renderTab()
+                }
+            }
+            addView(navItem, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        }
+    }
+
+    private fun dashboardPage(): View {
+        val content = vertical()
+        val records = RideHistory(this).latest(1000)
+        val todayStart = startOfToday()
+        val todays = records.filter { it.createdAt >= todayStart }
+        val gross = todays.sumOf { it.fare }
+        val net = todays.sumOf { it.net }
+        val km = todays.sumOf { it.pickupKm + it.tripKm }
+        val minutes = todays.sumOf { it.minutes }
+
+        val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        brandHeader.addView(ImageView(this).apply { setImageResource(R.drawable.ic_launcher) }, LinearLayout.LayoutParams(dp(68), dp(68)))
-        val brandCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        brandCopy.addView(text("RotaLume", 25, Color.WHITE, true))
-        brandCopy.addView(text("Seu copiloto de corridas • MOC", 13, Color.rgb(0, 214, 121), true))
-        brandHeader.addView(brandCopy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        content.addView(brandHeader)
-        content.addView(text("Configure seus custos e os critérios das recomendações.", 15, Color.LTGRAY))
-        content.addView(text("Os valores ficam salvos somente neste aparelho.", 13, Color.LTGRAY))
+        header.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_launcher)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+        }, LinearLayout.LayoutParams(dp(54), dp(54)))
+        val brandText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(11), 0, 0, 0) }
+        brandText.addView(label("Olá, motorista", 23, pale, true))
+        brandText.addView(label("RotaLume • Montes Claros", 13, accent, true))
+        header.addView(brandText)
+        content.addView(header)
+        content.addView(space(15))
 
-        gas = field(content, "Preço da gasolina (R$/L)", Prefs.GAS, "6,20")
-        consumo = field(content, "Consumo do veículo (km/L)", Prefs.CONSUMO, "12")
-        minHora = field(content, "Mínimo para considerar (R$/hora)", Prefs.MIN_HORA, "25")
-        boaHora = field(content, "Meta para ‘PEGAR’ (R$/hora)", Prefs.BOA_HORA, "35")
-        minKm = field(content, "Meta para ‘PEGAR’ (R$/km líquido)", Prefs.MIN_KM, "2,00")
+        val dailyCard = card()
+        dailyCard.addView(label("RESUMO DE HOJE", 13, accent, true))
+        dailyCard.addView(label(net.money(), 34, pale, true))
+        dailyCard.addView(label("Líquido estimado após combustível", 13, secondary))
+        dailyCard.addView(space(12))
+        dailyCard.addView(metricRow(listOf(
+            "OFERTAS" to todays.size.toString(),
+            "BRUTO" to gross.money(),
+            "KM" to "${km.oneDecimal()}"
+        )))
+        dailyCard.addView(space(7))
+        dailyCard.addView(label("Tempo das ofertas: ${minutes.oneDecimal()} min", 12, secondary))
+        dailyCard.addView(label("Estimativa das ofertas analisadas; não confirma corridas realizadas.", 11, secondary))
+        content.addView(dailyCard)
+        content.addView(space(14))
 
-        content.addView(button("Salvar configurações") {
-            val values = listOf(gas to Prefs.GAS, consumo to Prefs.CONSUMO, minHora to Prefs.MIN_HORA,
-                boaHora to Prefs.BOA_HORA, minKm to Prefs.MIN_KM)
-            val parsed = values.map { (edit, _) -> parse(edit.text.toString()) }
-            if (parsed.any { it == null } || (parsed[1] ?: 0.0) <= 0.0) {
-                Toast.makeText(this, "Confira os números. O consumo precisa ser maior que zero.", Toast.LENGTH_LONG).show()
-                return@button
-            }
-            prefs.edit().apply {
-                values.forEachIndexed { index, pair -> putFloat(pair.second, parsed[index]!!.toFloat()) }
-            }.apply()
-            Toast.makeText(this, "Configurações salvas", Toast.LENGTH_SHORT).show()
-        })
+        val serviceCard = card()
+        serviceCard.addView(label("MONITORAMENTO EM TEMPO REAL", 15, pale, true))
+        serviceCard.addView(space(5))
+        val accessOn = isServiceEnabled()
+        val overlayOn = Settings.canDrawOverlays(this)
+        val statusText = if (accessOn && overlayOn) "ATIVO — pronto para ler ofertas" else "PRECISA DE PERMISSÃO"
+        serviceCard.addView(label(statusText, 14, if (accessOn && overlayOn) lime else Color.rgb(255, 205, 92), true))
+        serviceCard.addView(space(7))
+        serviceCard.addView(label("Ative Acessibilidade e a janela flutuante. A bolinha R$ aparece sobre os apps e pode ser arrastada.", 13, secondary))
+        serviceCard.addView(space(8))
+        serviceCard.addView(actionButton("Configurar permissões") { permissionDialog() })
+        content.addView(serviceCard)
+        content.addView(space(14))
 
-        content.addView(button("Ver histórico das ofertas") {
-            startActivity(Intent(this, HistoryActivity::class.java))
-        })
+        val appsCard = card()
+        appsCard.addView(label("APPS MONITORADOS", 14, pale, true))
+        appsCard.addView(label("Uber Driver  •  99 Motorista  •  inDrive", 13, accent))
+        appsCard.addView(label("A leitura depende das informações que cada app disponibiliza à Acessibilidade.", 12, secondary))
+        content.addView(appsCard)
+        content.addView(space(15))
+        content.addView(label("O RotaLume só recomenda. Não aceita nem recusa corridas.", 12, secondary))
 
-        content.addView(button("Permitir janela flutuante") {
-            if (!Settings.canDrawOverlays(this)) {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-            }
-        })
-        content.addView(button("Ativar leitura de acessibilidade") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        })
-        permissions = text("", 14, Color.YELLOW)
-        content.addView(permissions)
-        content.addView(text("Como funciona", 18, Color.WHITE, true))
-        content.addView(text("Quando uma oferta aparece no Uber Driver ou 99 Driver, o app tenta ler valor, quilômetros e minutos visíveis. Calcula o custo estimado de combustível e mostra uma aba com lucro, ganho por hora, minuto e km. A recomendação é apenas informativa: o app não toca nos botões e não aceita nem recusa corridas.", 14, Color.LTGRAY))
-        content.addView(text("A leitura depende do texto que cada versão do app de motorista disponibiliza à Acessibilidade. Confira os números na tela antes de decidir; se algum dado não for reconhecido, o app avisa que a leitura ficou incompleta.", 14, Color.LTGRAY))
+        return scroll(content)
     }
 
-    override fun onResume() { super.onResume(); if (::permissions.isInitialized) refreshPermissions() }
+    private fun historyPage(): View {
+        val content = vertical()
+        content.addView(label("Histórico de ofertas", 24, pale, true))
+        content.addView(label("Leituras e estimativas salvas neste aparelho", 13, secondary))
+        content.addView(space(10))
+        val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        listOf("Hoje", "Este mês", "Tudo").forEachIndexed { index, title ->
+            val chip = actionButton(title) {
+                historyFilter = index
+                renderTab()
+            }
+            chip.textSize = 12f
+            chip.backgroundTintList = android.content.res.ColorStateList.valueOf(if (historyFilter == index) accent else surface2)
+            chip.setTextColor(if (historyFilter == index) bg else pale)
+            filters.addView(chip, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(5) })
+        }
+        content.addView(filters)
+        content.addView(space(10))
 
-    private fun refreshPermissions() {
-        val overlay = if (Settings.canDrawOverlays(this)) "permitida" else "pendente"
-        val a11y = if (isServiceEnabled()) "ativada" else "pendente"
-        permissions.text = "Sobreposição: $overlay   •   Acessibilidade: $a11y"
-        permissions.setTextColor(if (overlay == "permitida" && a11y == "ativada") Color.GREEN else Color.YELLOW)
+        val allRecords = RideHistory(this).latest(1000)
+        val now = System.currentTimeMillis()
+        val filtered = when (historyFilter) {
+            0 -> allRecords.filter { it.createdAt >= startOfToday() }
+            1 -> allRecords.filter { it.createdAt >= startOfMonth() }
+            else -> allRecords
+        }
+        val stats = card()
+        stats.addView(label("LÍQUIDO ESTIMADO DAS OFERTAS", 12, accent, true))
+        stats.addView(label(filtered.sumOf { it.net }.money(), 29, pale, true))
+        stats.addView(metricRow(listOf(
+            "OFERTAS" to filtered.size.toString(),
+            "KM" to filtered.sumOf { it.pickupKm + it.tripKm }.oneDecimal(),
+            "TEMPO" to "${filtered.sumOf { it.minutes }.oneDecimal()} min"
+        )))
+        content.addView(stats)
+        content.addView(space(8))
+        content.addView(actionButton("Apagar histórico") {
+            AlertDialog.Builder(this)
+                .setTitle("Apagar histórico?")
+                .setMessage("Isso remove todas as ofertas salvas neste aparelho.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Apagar") { _, _ ->
+                    RideHistory(this).deleteAll()
+                    Toast.makeText(this, "Histórico apagado", Toast.LENGTH_SHORT).show()
+                    renderTab()
+                }.show()
+        }.apply {
+            backgroundTintList = android.content.res.ColorStateList.valueOf(surface2)
+            setTextColor(pale)
+        })
+        content.addView(space(7))
+        if (filtered.isEmpty()) {
+            val empty = card()
+            empty.addView(label("Ainda não há ofertas neste período.", 15, pale, true))
+            empty.addView(label("Quando uma oferta compatível aparecer, ela será registrada aqui.", 13, secondary))
+            content.addView(empty)
+        } else {
+            filtered.forEach { content.addView(recordCard(it)); content.addView(space(8)) }
+        }
+        return scroll(content)
+    }
+
+    private fun settingsPage(): View {
+        val content = vertical()
+        content.addView(label("Ajustes", 24, pale, true))
+        content.addView(label("Custos e limites usados nas recomendações", 13, secondary))
+        content.addView(space(10))
+
+        val costCard = card()
+        costCard.addView(label("CÁLCULO DE CUSTOS", 14, accent, true))
+        gas = editField(costCard, "Preço da gasolina (R$/L)", Prefs.GAS, 6.20)
+        consumo = editField(costCard, "Consumo médio (km/L)", Prefs.CONSUMO, 12.0)
+        val costPerKm = label("Custo estimado de combustível: — / km", 13, pale, true)
+        costCard.addView(space(5))
+        costCard.addView(costPerKm)
+        content.addView(costCard)
+        content.addView(space(10))
+
+        val thresholdCard = card()
+        thresholdCard.addView(label("METAS DE RECOMENDAÇÃO", 14, accent, true))
+        minHora = editField(thresholdCard, "Mínimo para considerar (R$/h líquido)", Prefs.MIN_HORA, 25.0)
+        boaHora = editField(thresholdCard, "Meta para corrida boa (R$/h líquido)", Prefs.BOA_HORA, 35.0)
+        minKm = editField(thresholdCard, "Meta líquida por km (R$)", Prefs.MIN_KM, 2.0)
+        content.addView(thresholdCard)
+        content.addView(space(9))
+        content.addView(actionButton("Salvar configurações") {
+            val pairs = listOf(gas to Prefs.GAS, consumo to Prefs.CONSUMO, minHora to Prefs.MIN_HORA,
+                boaHora to Prefs.BOA_HORA, minKm to Prefs.MIN_KM)
+            val values = pairs.map { parse(it.first.text.toString()) }
+            if (values.any { it == null } || (values[1] ?: 0.0) <= 0.0) {
+                Toast.makeText(this, "Confira os números; o consumo precisa ser maior que zero.", Toast.LENGTH_LONG).show()
+                return@actionButton
+            }
+            prefs.edit().apply { pairs.forEachIndexed { index, pair -> putFloat(pair.second, values[index]!!.toFloat()) } }.apply()
+            val cost = (values[0]!! / values[1]!!).money()
+            costPerKm.text = "Custo estimado de combustível: $cost / km"
+            Toast.makeText(this, "Configurações salvas", Toast.LENGTH_SHORT).show()
+        })
+        costPerKm.text = "Custo estimado de combustível: ${(prefs.getFloat(Prefs.GAS, 6.20f) / prefs.getFloat(Prefs.CONSUMO, 12f)).toDouble().money()} / km"
+        content.addView(space(10))
+
+        val accessCard = card()
+        accessCard.addView(label("PERMISSÕES", 14, accent, true))
+        accessCard.addView(label("Acessibilidade: ${if (isServiceEnabled()) "ativada" else "pendente"}", 13, pale))
+        accessCard.addView(label("Janela flutuante: ${if (Settings.canDrawOverlays(this)) "permitida" else "pendente"}", 13, pale))
+        accessCard.addView(space(5))
+        accessCard.addView(actionButton("Configurar permissões") { permissionDialog() })
+        content.addView(accessCard)
+        content.addView(space(10))
+
+        val apps = card()
+        apps.addView(label("APPS MONITORADOS", 14, accent, true))
+        listOf("Uber Driver", "99 Motorista", "inDrive").forEach { app ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(label("•  $app", 14, pale), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(label("ATIVO", 11, lime, true))
+            apps.addView(row)
+        }
+        content.addView(apps)
+        content.addView(space(10))
+        val bubble = card()
+        bubble.addView(label("BOLHA FLUTUANTE R$", 14, accent, true))
+        bubble.addView(label("Arraste a bolinha para colocá-la onde preferir. Toque nela para reler a última oferta capturada. A leitura automática continua ativa.", 13, secondary))
+        content.addView(bubble)
+        content.addView(space(12))
+        content.addView(label("O cálculo desconta combustível estimado. Não inclui manutenção, pneus, depreciação, impostos ou outros custos.", 12, secondary))
+        return scroll(content)
+    }
+
+    private fun permissionDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Ativar monitoramento")
+            .setMessage("1. Permita a janela flutuante.\n2. Ative RotaLume em Acessibilidade.\n3. Abra o app de motorista. A bolinha R$ aparece e pode ser arrastada.\n\nO app apenas lê a oferta e recomenda; não toca em aceitar ou recusar.")
+            .setNegativeButton("Agora não", null)
+            .setPositiveButton("Abrir permissões") { _, _ ->
+                if (!Settings.canDrawOverlays(this)) {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                } else {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+            }.show()
+    }
+
+    private fun recordCard(r: RideRecord): LinearLayout {
+        val color = when (r.status) {
+            OverlayManager.GOOD -> lime
+            OverlayManager.MAYBE -> Color.rgb(255, 206, 92)
+            OverlayManager.BAD -> Color.rgb(255, 111, 121)
+            else -> secondary
+        }
+        val title = when (r.status) {
+            OverlayManager.GOOD -> "CORRIDA BOA — ACEITAR"
+            OverlayManager.MAYBE -> "MÉDIA — AVALIAR"
+            OverlayManager.BAD -> "CORRIDA RUIM — NÃO ACEITAR"
+            else -> "LEITURA INCOMPLETA"
+        }
+        val card = card()
+        card.addView(label(SimpleDateFormat("dd/MM/yyyy  HH:mm", Locale("pt", "BR")).format(Date(r.createdAt)), 12, secondary))
+        card.addView(label(title, 14, color, true))
+        card.addView(label("${r.fare.money()}  •  ${ (r.pickupKm + r.tripKm).oneDecimal()} km  •  ${r.minutes.oneDecimal()} min", 14, pale, true))
+        card.addView(label("Origem: ${r.pickup.ifBlank { "não identificada" }}", 12, secondary))
+        card.addView(label("Destino: ${r.dropoff.ifBlank { "não identificado" }}", 12, secondary))
+        card.addView(label("Combustível: ${r.fuelCost.money()}  •  Líquido estimado: ${r.net.money()}", 12, pale))
+        card.addView(label("Líquido: ${r.netHour.money()}/h  •  ${r.netKm.money()}/km  •  ${r.netMinute.money()}/min", 12, secondary))
+        return card
+    }
+
+    private fun metricRow(items: List<Pair<String, String>>): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        items.forEachIndexed { index, pair ->
+            val cell = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(7), dp(5), dp(4), dp(5))
+                addView(label(pair.first, 10, secondary, true))
+                addView(label(pair.second, 14, pale, true))
+            }
+            addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+    }
+
+    private fun editField(parent: LinearLayout, title: String, key: String, default: Double): EditText {
+        parent.addView(label(title, 12, secondary))
+        val current = prefs.getFloat(key, default.toFloat()).toString()
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+            setSingleLine(true)
+            setText(current)
+            textSize = 15f
+            setTextColor(pale)
+            setHintTextColor(secondary)
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+            background = rounded(surface2, dp(10), Color.rgb(72, 89, 126))
+        }
+        parent.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { bottomMargin = dp(7) })
+        return input
+    }
+
+    private fun actionButton(title: String, action: () -> Unit): Button = Button(this).apply {
+        text = title
+        isAllCaps = false
+        textSize = 14f
+        setTextColor(bg)
+        backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
+        setOnClickListener { action() }
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(3) }
+    }
+
+    private fun vertical(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(18), dp(17), dp(18), dp(18))
+        setBackgroundColor(bg)
+    }
+
+    private fun scroll(content: LinearLayout): ScrollView = ScrollView(this).apply {
+        isFillViewport = true
+        addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        setBackgroundColor(bg)
+    }
+
+    private fun card(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(15), dp(13), dp(15), dp(13))
+        background = rounded(surface, dp(21), Color.rgb(53, 70, 110))
+        elevation = dp(2).toFloat()
+    }
+
+    private fun rounded(color: Int, radius: Int, stroke: Int): GradientDrawable = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = radius.toFloat()
+        setStroke(dp(1), stroke)
+    }
+
+    private fun label(value: String, size: Int, color: Int, bold: Boolean = false): TextView = TextView(this).apply {
+        text = value
+        textSize = size.toFloat()
+        setTextColor(color)
+        if (bold) setTypeface(typeface, Typeface.BOLD)
+        setPadding(0, dp(3), 0, dp(3))
+    }
+
+    private fun space(height: Int): View = View(this).apply {
+        layoutParams = LinearLayout.LayoutParams(1, dp(height))
     }
 
     private fun isServiceEnabled(): Boolean {
@@ -108,40 +427,16 @@ class MainActivity : Activity() {
         return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
     }
 
-    private fun field(parent: LinearLayout, label: String, key: String, fallback: String): EditText {
-        parent.addView(text(label, 14, Color.LTGRAY))
-        return EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setSingleLine(true)
-            setText(prefs.getFloat(key, parse(fallback)!!.toFloat()).toString().trimEnd('0').trimEnd('.'))
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.GRAY)
-            setHint(fallback)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(0, 255, 136))
-            parent.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
-        }
-    }
+    private fun startOfToday(): Long = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 
-    private fun button(label: String, action: () -> Unit): Button = Button(this).apply {
-        text = label
-        setOnClickListener { action() }
-        isAllCaps = false
-        backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(0, 214, 121))
-        setTextColor(Color.rgb(8, 20, 16))
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(8) }
-    }
-
-    private fun text(value: String, size: Int, color: Int, bold: Boolean = false) = TextView(this).apply {
-        text = value
-        textSize = size.toFloat()
-        setTextColor(color)
-        if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
-        setPadding(0, dp(7), 0, dp(7))
-    }
+    private fun startOfMonth(): Long = Calendar.getInstance().apply {
+        set(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 
     private fun parse(value: String): Double? = value.trim().replace(" ", "").replace(",", ".").toDoubleOrNull()
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
 
 internal object Prefs {

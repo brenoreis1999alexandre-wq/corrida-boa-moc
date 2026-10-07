@@ -16,7 +16,8 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
     private var lastRidePackage: String? = null
     private var lastRideScreenText: String? = null
     private val supportedPackages = setOf(
-        "com.ubercab.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver"
+        "com.ubercab.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver",
+        "sinet.startup.inDriver"
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val history by lazy { RideHistory(this) }

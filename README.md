@@ -1,15 +1,17 @@
 # RotaLume
 
-Seu copiloto de corridas para motorista de aplicativo. Lê ofertas visíveis nos apps de motorista configurados, calcula valores, mostra uma recomendação falada/flutuante e guarda um histórico local.
+App Android de apoio ao motorista, com interface em painel, histórico e ajustes; sem área ou recursos Premium.
 
-## O que faz
+## Funcionalidades
 
-- Botão flutuante **LER CORRIDA**: reanalisa a última oferta visível; a leitura automática continua ativa com Acessibilidade.
-- Recomendações: **CORRIDA BOA — ACEITAR**, **MÉDIA — AVALIAR** e **CORRIDA RUIM — NÃO ACEITAR**.
-- Mostra métricas brutas e líquidas, separando a estimativa de combustível.
-- Guarda ofertas no histórico local, incluindo data, origem/destino se acessíveis, preço, km, tempo e recomendação.
-- Permite configurar gasolina, consumo e limites.
-- Não clica, aceita nem recusa corridas.
+- Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
+- Toque na bolha para reler a última oferta capturada; a análise automática por Acessibilidade continua ativa.
+- Apps monitorados: Uber Driver, 99 Motorista e inDrive.
+- Classificação informativa: corrida boa, média ou ruim; cálculos de tarifa, distância, tempo e combustível.
+- Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo.
+- Painel resume as ofertas analisadas. Os valores são estimativas de ofertas, não comprovantes de corridas realizadas.
+- Ajustes de gasolina, consumo e critérios; o custo por km de combustível é calculado a partir dos dados informados.
+- O app não toca em botões, aceita ou recusa corridas.
 
 ## Critérios iniciais
 
@@ -17,20 +19,20 @@ Seu copiloto de corridas para motorista de aplicativo. Lê ofertas visíveis nos
 - Boa: pelo menos R$ 35/h líquido e R$ 2,00 líquidos/km.
 - Média: demais ofertas acima do mínimo.
 
-O custo considera apenas combustível; não contempla manutenção, pneus, depreciação, impostos ou outros gastos.
+O cálculo considera somente combustível, não manutenção, pneus, depreciação, impostos ou outros custos.
 
-## Criar APK
+## Instalação e ativação
 
-Abra no Android Studio com JDK 17 e Android SDK 35; use **Build > Build APK(s)**. Ou acompanhe o workflow GitHub Actions, que compila um APK de teste por atualização no código.
+1. Instale e abra o APK.
+2. Ajuste o combustível e o consumo do veículo.
+3. Permita a janela flutuante.
+4. Ative RotaLume em Serviços de Acessibilidade. Se o Android bloquear por ser APK instalado fora da loja, abra **Informações do app → ⋮ → Permitir configurações restritas** e tente novamente.
+5. Abra Uber Driver, 99 Motorista ou inDrive. A bolha R$ aparece; arraste para mover ou toque para reler.
 
-## Ativar
+## Build
 
-1. Instale e abra RotaLume.
-2. Ajuste o preço da gasolina e consumo do veículo.
-3. Conceda permissão de sobreposição.
-4. Ative RotaLume nos Serviços de Acessibilidade.
-5. Abra Uber Driver ou 99 Driver. O botão flutuante aparece e as ofertas são analisadas.
+O workflow GitHub Actions compila APKs de teste ao atualizar o código. Abra o projeto no Android Studio com JDK 17 e Android SDK 35 ou use o APK publicado na pasta `downloads/`.
 
 ## Privacidade e limitações
 
-Histórico e configurações ficam no aparelho. O app não tem permissão de internet nem envia tela/endereço a servidor. A extração depende do texto que cada versão do app de motorista oferece à Acessibilidade e deve ser conferida em ofertas reais. A localização pode não ficar disponível. Não é afiliado ao Uber, 99, GigU ou GanhoPro.
+Histórico e ajustes ficam neste aparelho. O app não envia texto de tela nem endereços a um servidor. A leitura depende do que cada versão dos apps oferece à Acessibilidade e deve ser validada em ofertas reais. Não é afiliado a Uber, 99, inDrive, GanhoPro ou outras plataformas.

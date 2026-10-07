@@ -4,15 +4,16 @@ import android.accessibilityservice.AccessibilityService
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
-import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
-import android.view.ViewGroup
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.WindowManager
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlin.math.hypot
 
 internal object OverlayManager {
     const val GOOD = 1
@@ -20,63 +21,97 @@ internal object OverlayManager {
     const val BAD = 3
     const val WARNING = 4
 
+    private const val POS_X = "bubble_position_x"
+    private const val POS_Y = "bubble_position_y"
     private var windowManager: WindowManager? = null
-    private var floatingButton: LinearLayout? = null
-    private var resultCard: TextView? = null
+    private var bubbleView: TextView? = null
+    private var resultView: LinearLayout? = null
     private val handler = Handler(Looper.getMainLooper())
     private val removeResultTask = Runnable { removeResult() }
 
-    fun showFloatingButton(service: AccessibilityService, onClick: () -> Unit) {
+    fun showFloatingButton(service: AccessibilityService, onTap: () -> Unit) {
         if (!Settings.canDrawOverlays(service)) return
         handler.post {
-            if (floatingButton != null) return@post
+            if (bubbleView != null) return@post
             val wm = service.getSystemService(AccessibilityService.WINDOW_SERVICE) as WindowManager
-            val pillBackground = GradientDrawable().apply {
-                setColor(Color.rgb(11, 24, 25))
-                cornerRadius = dp(service, 28).toFloat()
-                setStroke(dp(service, 2), Color.rgb(0, 214, 121))
-            }
-            val pill = LinearLayout(service).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(service, 9), dp(service, 7), dp(service, 16), dp(service, 7))
-                background = pillBackground
-                elevation = dp(service, 10).toFloat()
-                contentDescription = "RotaLume — ler corrida"
-                isClickable = true
-                isFocusable = false
-                setOnClickListener { onClick() }
-            }
-            val icon = ImageView(service).apply {
-                setImageResource(R.drawable.ic_launcher)
-                scaleType = ImageView.ScaleType.CENTER_CROP
-            }
-            pill.addView(icon, LinearLayout.LayoutParams(dp(service, 34), dp(service, 34)))
-            val text = TextView(service).apply {
-                this.text = "LER CORRIDA"
-                textSize = 13f
-                setTextColor(Color.WHITE)
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setPadding(dp(service, 9), 0, 0, 0)
-            }
-            pill.addView(text, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            val diameter = dp(service, 60)
+            val prefs = service.getSharedPreferences(Prefs.FILE, 0)
+            val maxX = (service.resources.displayMetrics.widthPixels - diameter).coerceAtLeast(0)
+            val maxY = (service.resources.displayMetrics.heightPixels - diameter).coerceAtLeast(0)
             val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
+                diameter,
+                diameter,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                x = dp(service, 10)
-                y = dp(service, 420)
+                gravity = Gravity.TOP or Gravity.START
+                x = prefs.getInt(POS_X, (maxX - dp(service, 8)).coerceAtLeast(0)).coerceIn(0, maxX)
+                y = prefs.getInt(POS_Y, dp(service, 300)).coerceIn(0, maxY)
+            }
+            val circle = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(21, 232, 167), Color.rgb(0, 155, 117))
+            ).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(service, 2), Color.argb(220, 231, 255, 247))
+            }
+            val bubble = TextView(service).apply {
+                text = "R\$"
+                textSize = 18f
+                setTextColor(Color.WHITE)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                background = circle
+                elevation = dp(service, 10).toFloat()
+                contentDescription = "RotaLume: toque para reler a oferta; arraste para mover"
+                includeFontPadding = false
+            }
+            val touchSlop = ViewConfiguration.get(service).scaledTouchSlop.toFloat()
+            var downRawX = 0f
+            var downRawY = 0f
+            var startX = 0
+            var startY = 0
+            var moved = false
+            bubble.setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downRawX = event.rawX
+                        downRawY = event.rawY
+                        startX = params.x
+                        startY = params.y
+                        moved = false
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - downRawX
+                        val dy = event.rawY - downRawY
+                        if (hypot(dx.toDouble(), dy.toDouble()) > touchSlop.toDouble()) moved = true
+                        if (moved) {
+                            params.x = (startX + dx).toInt().coerceIn(0, maxX)
+                            params.y = (startY + dy).toInt().coerceIn(0, maxY)
+                            try { wm.updateViewLayout(bubble, params) } catch (_: Exception) { }
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (moved) {
+                            prefs.edit().putInt(POS_X, params.x).putInt(POS_Y, params.y).apply()
+                        } else {
+                            onTap()
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> true
+                    else -> false
+                }
             }
             try {
-                wm.addView(pill, params)
+                wm.addView(bubble, params)
                 windowManager = wm
-                floatingButton = pill
+                bubbleView = bubble
             } catch (_: Exception) {
-                floatingButton = null
+                bubbleView = null
             }
         }
     }
@@ -85,26 +120,40 @@ internal object OverlayManager {
         handler.post {
             removeResult()
             val wm = service.getSystemService(AccessibilityService.WINDOW_SERVICE) as WindowManager
-            val color = when (status) {
-                GOOD -> Color.rgb(0, 160, 88)
-                MAYBE -> Color.rgb(170, 125, 0)
-                BAD -> Color.rgb(175, 42, 42)
-                else -> Color.rgb(58, 72, 92)
+            val accent = when (status) {
+                GOOD -> Color.rgb(37, 225, 151)
+                MAYBE -> Color.rgb(255, 200, 72)
+                BAD -> Color.rgb(255, 105, 105)
+                else -> Color.rgb(117, 176, 255)
             }
             val background = GradientDrawable().apply {
-                setColor(color)
-                cornerRadius = dp(service, 22).toFloat()
-                setStroke(dp(service, 2), Color.WHITE)
+                setColor(Color.rgb(26, 35, 58))
+                cornerRadius = dp(service, 23).toFloat()
+                setStroke(dp(service, 2), accent)
             }
-            val label = TextView(service).apply {
-                text = message
-                textSize = 14f
-                setTextColor(Color.WHITE)
-                setPadding(dp(service, 20), dp(service, 15), dp(service, 20), dp(service, 15))
+            val card = LinearLayout(service).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(service, 18), dp(service, 14), dp(service, 18), dp(service, 14))
                 this.background = background
                 elevation = dp(service, 12).toFloat()
+            }
+            val lines = message.lines()
+            val title = TextView(service).apply {
+                text = "ROTALUME  •  ${lines.firstOrNull().orEmpty()}"
+                textSize = 16f
+                setTextColor(accent)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, dp(service, 7))
+            }
+            val details = TextView(service).apply {
+                text = lines.drop(1).joinToString("\n").ifBlank { message }
+                textSize = 13f
+                setTextColor(Color.rgb(241, 245, 255))
+                setLineSpacing(dp(service, 2).toFloat(), 1.04f)
                 contentDescription = message
             }
+            card.addView(title)
+            card.addView(details)
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -113,12 +162,15 @@ internal object OverlayManager {
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = dp(service, 64)
+                val margin = dp(service, 12)
+                x = margin
+                y = dp(service, 68)
+                width = service.resources.displayMetrics.widthPixels - 2 * margin
             }
             try {
-                wm.addView(label, params)
+                wm.addView(card, params)
                 windowManager = wm
-                resultCard = label
+                resultView = card
                 handler.removeCallbacks(removeResultTask)
                 handler.postDelayed(removeResultTask, 18_000)
             } catch (_: Exception) {
@@ -130,16 +182,16 @@ internal object OverlayManager {
     fun hide(service: AccessibilityService) {
         handler.post {
             removeResult()
-            try { floatingButton?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
-            floatingButton = null
+            try { bubbleView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
+            bubbleView = null
             windowManager = null
         }
     }
 
     private fun removeResult() {
         handler.removeCallbacks(removeResultTask)
-        try { resultCard?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
-        resultCard = null
+        try { resultView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
+        resultView = null
     }
 
     private fun dp(service: AccessibilityService, value: Int): Int =

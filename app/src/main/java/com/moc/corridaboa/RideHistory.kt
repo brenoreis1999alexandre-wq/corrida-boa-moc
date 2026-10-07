@@ -61,6 +61,10 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
         writableDatabase.insert("offers", null, values)
     }
 
+    fun deleteAll() {
+        writableDatabase.delete("offers", null, null)
+    }
+
     fun latest(limit: Int = 100): List<RideRecord> {
         val rows = mutableListOf<RideRecord>()
         readableDatabase.query("offers", null, null, null, null, null, "created_at DESC", limit.toString()).use { c ->
