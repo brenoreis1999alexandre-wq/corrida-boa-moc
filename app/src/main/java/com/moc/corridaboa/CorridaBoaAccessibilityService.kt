@@ -229,9 +229,9 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
 
         val gasPrice = settings.getFloat(Prefs.GAS, 6.20f).toDouble()
         val consumption = max(0.1, settings.getFloat(Prefs.CONSUMO, 12f).toDouble())
-        val minimumHourly = settings.getFloat(Prefs.MIN_HORA, 25f).toDouble()
-        val goodHourly = settings.getFloat(Prefs.BOA_HORA, 35f).toDouble()
-        val goodPerKm = settings.getFloat(Prefs.MIN_KM, 2f).toDouble()
+        val targetPerHour = settings.getFloat(Prefs.BOA_HORA, 35f).toDouble()
+        val targetPerKm = settings.getFloat(Prefs.MIN_KM, 2f).toDouble()
+        val targetPerMinute = settings.getFloat(Prefs.MIN_MINUTO, 0.58f).toDouble()
         val fuelCost = totalKm * gasPrice / consumption
         val net = fare - fuelCost
         val grossHour = fare / (tempoTotal / 60.0)
@@ -240,9 +240,12 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
         val netHour = net / (tempoTotal / 60.0)
         val netMinute = net / tempoTotal
         val netKm = net / totalKm
+        val meetsKm = netKm >= targetPerKm
+        val meetsHour = netHour >= targetPerHour
+        val meetsMinute = netMinute >= targetPerMinute
         val status = when {
-            net <= 0.0 || netHour < minimumHourly -> OverlayManager.BAD
-            netHour >= goodHourly && netKm >= goodPerKm -> OverlayManager.GOOD
+            net <= 0.0 || (!meetsKm && !meetsHour && !meetsMinute) -> OverlayManager.BAD
+            meetsKm && meetsHour && meetsMinute -> OverlayManager.GOOD
             else -> OverlayManager.MAYBE
         }
         val signature = listOf(pkg, fare, kmBusca, kmViagem, tempoTotal, pickup, dropoff).joinToString("|")
@@ -264,11 +267,13 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
             else -> "CORRIDA RUIM — NÃO ACEITAR"
         }
         val details = """$title
-${fare.money()}  •  Buscar ${kmBusca.oneDecimal()} km + viagem ${kmViagem.oneDecimal()} km
-Total ${totalKm.oneDecimal()} km  •  ${tempoTotal.oneDecimal()} min
-Lucro após combustível: ${net.money()}
-Bruto: ${grossHour.money()}/h • ${grossMinute.money()}/min • ${grossKm.money()}/km
-Líquido: ${netHour.money()}/h • ${netMinute.money()}/min • ${netKm.money()}/km"""
+Valor da oferta (bruto): ${fare.money()}
+Combustível estimado: -${fuelCost.money()}
+Sobra estimada para você: ${net.money()}
+Busca ${kmBusca.oneDecimal()} km + viagem ${kmViagem.oneDecimal()} km = ${totalKm.oneDecimal()} km • ${tempoTotal.oneDecimal()} min
+Seus ganhos líquidos: ${netKm.money()}/km • ${netHour.money()}/h • ${netMinute.money()}/min
+Metas atingidas: km ${if (meetsKm) "sim" else "não"} • hora ${if (meetsHour) "sim" else "não"} • minuto ${if (meetsMinute) "sim" else "não"}
+Bruto: ${grossKm.money()}/km • ${grossHour.money()}/h • ${grossMinute.money()}/min"""
         OverlayManager.show(this, details, status)
         val spoken = when (status) {
             OverlayManager.GOOD -> "Corrida boa. Aceitar."

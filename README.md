@@ -16,11 +16,10 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 
 ## Critérios iniciais
 
-- Ruim: líquido após combustível ≤ 0 ou abaixo de R$ 25/h.
-- Boa: pelo menos R$ 35/h líquido e R$ 2,00 líquidos/km.
-- Média: demais ofertas acima do mínimo.
+- A pessoa define metas líquidas por km, hora e minuto.
+- Boa: atinge as três metas; média: atinge uma ou duas; ruim: não atinge nenhuma ou o líquido após combustível é ≤ 0.
 
-O cálculo considera somente combustível, não manutenção, pneus, depreciação, impostos ou outros custos.
+As tarifas por km, hora e minuto são indicadores diferentes e não se somam umas às outras. O app soma o preço da oferta, estima o combustível e mostra o valor restante e cada indicador separadamente. O cálculo considera somente combustível, não manutenção, pneus, depreciação, impostos ou outros custos.
 
 ## Instalação e ativação
 

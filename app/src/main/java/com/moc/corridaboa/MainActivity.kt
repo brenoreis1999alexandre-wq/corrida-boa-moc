@@ -30,9 +30,11 @@ class MainActivity : Activity() {
     private lateinit var pageHost: FrameLayout
     private lateinit var gas: EditText
     private lateinit var consumo: EditText
-    private lateinit var minHora: EditText
-    private lateinit var boaHora: EditText
-    private lateinit var minKm: EditText
+    private lateinit var targetKm: EditText
+    private lateinit var targetHour: EditText
+    private lateinit var targetMinute: EditText
+    private var accessStatusLabel: TextView? = null
+    private var overlayStatusLabel: TextView? = null
     private var selectedTab = 0
     private var historyFilter = 1 // current month
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
@@ -62,12 +64,17 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::pageHost.isInitialized && selectedTab == 0) renderTab()
+        if (!::pageHost.isInitialized) return
+        if (selectedTab == 0) renderTab()
+        accessStatusLabel?.text = "Acessibilidade: ${if (isServiceEnabled()) "ativada" else "pendente"}"
+        overlayStatusLabel?.text = "Janela flutuante: ${if (Settings.canDrawOverlays(this)) "permitida" else "pendente"}"
     }
 
     private fun renderTab() {
         if (!::pageHost.isInitialized) return
         pageHost.removeAllViews()
+        accessStatusLabel = null
+        overlayStatusLabel = null
         val page = when (selectedTab) {
             1 -> historyPage()
             2 -> settingsPage()
@@ -257,17 +264,18 @@ class MainActivity : Activity() {
 
         val thresholdCard = card()
         thresholdCard.addView(label("METAS DE RECOMENDAÇÃO", 14, accent, true))
-        minHora = editField(thresholdCard, "Mínimo para considerar (R$/h líquido)", Prefs.MIN_HORA, 25.0)
-        boaHora = editField(thresholdCard, "Meta para corrida boa (R$/h líquido)", Prefs.BOA_HORA, 35.0)
-        minKm = editField(thresholdCard, "Meta líquida por km (R$)", Prefs.MIN_KM, 2.0)
+        targetKm = editField(thresholdCard, "Ganhos líquidos mínimos por km (R$/km)", Prefs.MIN_KM, 2.0)
+        targetHour = editField(thresholdCard, "Ganhos líquidos mínimos por hora (R$/h)", Prefs.BOA_HORA, 35.0)
+        targetMinute = editField(thresholdCard, "Ganhos líquidos mínimos por minuto (R$/min)", Prefs.MIN_MINUTO, 0.58)
+        thresholdCard.addView(label("A corrida boa precisa atingir as três metas. A média atinge parte delas; a ruim não atinge nenhuma ou deixa prejuízo.", 12, secondary))
         content.addView(thresholdCard)
         content.addView(space(9))
         content.addView(actionButton("Salvar configurações") {
-            val pairs = listOf(gas to Prefs.GAS, consumo to Prefs.CONSUMO, minHora to Prefs.MIN_HORA,
-                boaHora to Prefs.BOA_HORA, minKm to Prefs.MIN_KM)
+            val pairs = listOf(gas to Prefs.GAS, consumo to Prefs.CONSUMO, targetKm to Prefs.MIN_KM,
+                targetHour to Prefs.BOA_HORA, targetMinute to Prefs.MIN_MINUTO)
             val values = pairs.map { parse(it.first.text.toString()) }
-            if (values.any { it == null } || (values[1] ?: 0.0) <= 0.0) {
-                Toast.makeText(this, "Confira os números; o consumo precisa ser maior que zero.", Toast.LENGTH_LONG).show()
+            if (values.any { it == null } || (values[1] ?: 0.0) <= 0.0 || values.drop(2).any { (it ?: -1.0) < 0.0 }) {
+                Toast.makeText(this, "Confira os números; o consumo deve ser maior que zero e as metas não podem ser negativas.", Toast.LENGTH_LONG).show()
                 return@actionButton
             }
             prefs.edit().apply { pairs.forEachIndexed { index, pair -> putFloat(pair.second, values[index]!!.toFloat()) } }.apply()
@@ -280,8 +288,12 @@ class MainActivity : Activity() {
 
         val accessCard = card()
         accessCard.addView(label("PERMISSÕES", 14, accent, true))
-        accessCard.addView(label("Acessibilidade: ${if (isServiceEnabled()) "ativada" else "pendente"}", 13, pale))
-        accessCard.addView(label("Janela flutuante: ${if (Settings.canDrawOverlays(this)) "permitida" else "pendente"}", 13, pale))
+        val accessLabel = label("Acessibilidade: ${if (isServiceEnabled()) "ativada" else "pendente"}", 13, pale)
+        val overlayLabel = label("Janela flutuante: ${if (Settings.canDrawOverlays(this)) "permitida" else "pendente"}", 13, pale)
+        accessStatusLabel = accessLabel
+        overlayStatusLabel = overlayLabel
+        accessCard.addView(accessLabel)
+        accessCard.addView(overlayLabel)
         accessCard.addView(space(5))
         accessCard.addView(actionButton("Configurar permissões") { permissionDialog() })
         content.addView(accessCard)
@@ -309,7 +321,7 @@ class MainActivity : Activity() {
     private fun permissionDialog() {
         AlertDialog.Builder(this)
             .setTitle("Ativar monitoramento")
-            .setMessage("1. Permita a janela flutuante.\n2. Ative RotaLume em Acessibilidade.\n3. Abra o app de motorista. A bolinha R$ aparece e pode ser arrastada.\n\nO app apenas lê a oferta e recomenda; não toca em aceitar ou recusar.")
+            .setMessage("1. Permita a janela flutuante.\n2. Ative RotaLume em Acessibilidade. Se estiver bloqueado, abra Informações do app > ⋮ > Permitir configurações restritas e tente novamente.\n3. Abra o app de motorista. A bolinha R$ aparece e pode ser arrastada.\n\nO app apenas lê a oferta e recomenda; não toca em aceitar ou recusar.")
             .setNegativeButton("Agora não", null)
             .setPositiveButton("Abrir permissões") { _, _ ->
                 if (!Settings.canDrawOverlays(this)) {
@@ -446,5 +458,6 @@ internal object Prefs {
     const val MIN_HORA = "min_hour"
     const val BOA_HORA = "good_hour"
     const val MIN_KM = "good_km"
+    const val MIN_MINUTO = "good_minute"
     const val OCR_CONTINUOUS = "ocr_continuous"
 }
