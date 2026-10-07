@@ -8,7 +8,7 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Toque na bolha para fazer OCR da tela atual; segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
 - A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.
-- Classificação informativa: corrida boa, média ou ruim; cálculos de tarifa, distância, tempo e combustível.
+- Classificação informativa e silenciosa: corrida boa, média ou ruim; cálculos de tarifa, distância, tempo e combustível aparecem na tela, sem fala por voz.
 - Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo.
 - Painel resume as ofertas analisadas. Os valores são estimativas de ofertas, não comprovantes de corridas realizadas.
 - Ajustes de gasolina, consumo e critérios; o custo por km de combustível é calculado a partir dos dados informados.

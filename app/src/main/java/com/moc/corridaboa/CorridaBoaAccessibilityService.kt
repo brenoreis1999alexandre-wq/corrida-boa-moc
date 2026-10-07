@@ -7,7 +7,6 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.speech.tts.TextToSpeech
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -18,9 +17,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.Locale
 import kotlin.math.max
 
-class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnInitListener {
-    private var tts: TextToSpeech? = null
-    private var ttsReady = false
+class CorridaBoaAccessibilityService : AccessibilityService() {
     private var lastSignature = ""
     private var lastAnnouncedAt = 0L
     private var lastRidePackage: String? = null
@@ -45,18 +42,12 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        tts = TextToSpeech(this, this)
         val continuous = settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
         if (Settings.canDrawOverlays(this)) {
             OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
             OverlayManager.setOcrMode(continuous)
         }
         if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) handler.post(continuousOcrLoop)
-    }
-
-    override fun onInit(status: Int) {
-        ttsReady = status == TextToSpeech.SUCCESS
-        if (ttsReady) tts?.language = Locale("pt", "BR")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -189,11 +180,15 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
 
     private fun showScanMessage(message: String, status: Int) {
         OverlayManager.show(this, message, status)
-        speak(message)
     }
 
-    private fun hasEssentialText(text: String): Boolean =
-        PRICE.containsMatchIn(text) && KM.containsMatchIn(text) && MINUTES.containsMatchIn(text)
+    private fun hasEssentialText(text: String): Boolean {
+        if (!PRICE.containsMatchIn(text)) return false
+        val routes = ROUTE.findAll(text).count()
+        val distances = KM.findAll(text).count()
+        val minutes = MINUTES.findAll(text).count()
+        return routes >= 2 || (distances >= 2 && minutes >= 2)
+    }
 
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
         val screenText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
@@ -205,27 +200,33 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
 
         val routeParts = ROUTE.findAll(screenText).toList()
         val allDistances = KM.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
-        val allMinutes = MINUTES.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.take(2).toList()
-        val kmBusca = routeParts.getOrNull(0)?.groupValues?.getOrNull(2)?.toBrazilianDouble()
-            ?: if (allDistances.size >= 2) allDistances[0] else 0.0
-        val kmViagem = routeParts.getOrNull(1)?.groupValues?.getOrNull(2)?.toBrazilianDouble()
-            ?: if (allDistances.size >= 2) allDistances[1] else allDistances.firstOrNull() ?: 0.0
+        val allMinutes = MINUTES.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
+        val completeRoute = routeParts.size >= 2 || (allDistances.size >= 2 && allMinutes.size >= 2)
+        if (!completeRoute) {
+            val partial = buildString {
+                append("OFERTA DETECTADA — LEITURA PARCIAL\nValor mostrado: ${fare.money()}\n")
+                if (allDistances.isNotEmpty()) append("Quilômetros lidos: ${allDistances.take(2).sum().oneDecimal()} km\n")
+                if (allMinutes.isNotEmpty()) append("Tempo lido: ${allMinutes.take(2).sum().oneDecimal()} min\n")
+                append("Não calculei o líquido porque faltam dados da rota.")
+            }
+            val signature = "incompleto:$fare:${screenText.hashCode()}"
+            if (manual || shouldDisplay(signature)) OverlayManager.show(this, partial, OverlayManager.WARNING)
+            return
+        }
+        val kmBusca = if (routeParts.size >= 2) {
+            routeParts[0].groupValues[2].toBrazilianDouble() ?: 0.0
+        } else allDistances[0]
+        val kmViagem = if (routeParts.size >= 2) {
+            routeParts[1].groupValues[2].toBrazilianDouble() ?: 0.0
+        } else allDistances[1]
         val tempoTotal = if (routeParts.size >= 2) {
             (routeParts[0].groupValues[1].toBrazilianDouble() ?: 0.0) +
                 (routeParts[1].groupValues[1].toBrazilianDouble() ?: 0.0)
-        } else allMinutes.sum()
+        } else allMinutes.take(2).sum()
         val pickup = routeParts.getOrNull(0)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
         val dropoff = routeParts.getOrNull(1)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
         val totalKm = kmBusca + kmViagem
-        if (totalKm <= 0.0 || tempoTotal <= 0.0) {
-            val signature = "incompleto:$fare:${screenText.hashCode()}"
-            if (manual || shouldAnnounce(signature)) {
-                val warning = "Oferta detectada, mas não consegui ler todos os quilômetros ou o tempo. Confira os dados antes de decidir."
-                OverlayManager.show(this, warning, OverlayManager.WARNING)
-                speak(warning)
-            }
-            return
-        }
+        if (totalKm <= 0.0 || tempoTotal <= 0.0) return
 
         val gasPrice = settings.getFloat(Prefs.GAS, 6.20f).toDouble()
         val consumption = max(0.1, settings.getFloat(Prefs.CONSUMO, 12f).toDouble())
@@ -275,24 +276,14 @@ Seus ganhos líquidos: ${netKm.money()}/km • ${netHour.money()}/h • ${netMin
 Metas atingidas: km ${if (meetsKm) "sim" else "não"} • hora ${if (meetsHour) "sim" else "não"} • minuto ${if (meetsMinute) "sim" else "não"}
 Bruto: ${grossKm.money()}/km • ${grossHour.money()}/h • ${grossMinute.money()}/min"""
         OverlayManager.show(this, details, status)
-        val spoken = when (status) {
-            OverlayManager.GOOD -> "Corrida boa. Aceitar."
-            OverlayManager.MAYBE -> "Corrida média. Avaliar."
-            else -> "Corrida ruim. Não aceitar."
-        }
-        speak(spoken)
     }
 
-    private fun shouldAnnounce(signature: String): Boolean {
+    private fun shouldDisplay(signature: String): Boolean {
         val now = System.currentTimeMillis()
         if (signature == lastSignature && now - lastAnnouncedAt < 180_000) return false
         lastSignature = signature
         lastAnnouncedAt = now
         return true
-    }
-
-    private fun speak(message: String) {
-        if (ttsReady) tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "corrida-$lastAnnouncedAt")
     }
 
     private fun collectText(node: AccessibilityNodeInfo?): String {
@@ -306,14 +297,11 @@ Bruto: ${grossKm.money()}/km • ${grossHour.money()}/h • ${grossMinute.money(
         return out.toString()
     }
 
-    override fun onInterrupt() { tts?.stop() }
+    override fun onInterrupt() { }
     override fun onDestroy() {
         handler.removeCallbacks(continuousOcrLoop)
         textRecognizer.close()
         OverlayManager.hide(this)
-        tts?.stop()
-        tts?.shutdown()
-        tts = null
         super.onDestroy()
     }
 
