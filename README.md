@@ -5,7 +5,8 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 ## Funcionalidades
 
 - Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
-- Toque na bolha para reler a última oferta capturada; a análise automática por Acessibilidade continua ativa.
+- Toque na bolha para fazer OCR da tela atual; segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
+- A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.
 - Classificação informativa: corrida boa, média ou ruim; cálculos de tarifa, distância, tempo e combustível.
 - Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo.
@@ -27,7 +28,8 @@ O cálculo considera somente combustível, não manutenção, pneus, depreciaç�
 2. Ajuste o combustível e o consumo do veículo.
 3. Permita a janela flutuante.
 4. Ative RotaLume em Serviços de Acessibilidade. Se o Android bloquear por ser APK instalado fora da loja, abra **Informações do app → ⋮ → Permitir configurações restritas** e tente novamente.
-5. Abra Uber Driver, 99 Motorista ou inDrive. A bolha R$ aparece; arraste para mover ou toque para reler.
+5. Abra Uber Driver, 99 Motorista ou inDrive. A bolha R$ aparece; arraste para mover, toque para OCR da tela atual, ou segure para iniciar/parar a leitura visual contínua.
+6. Para uma oferta que aparece dentro de um vídeo ou como imagem, deixe o preço e os dados visíveis e use OCR contínuo (Android 11+).
 
 ## Build
 
@@ -35,4 +37,4 @@ O workflow GitHub Actions compila APKs de teste ao atualizar o código. Abra o p
 
 ## Privacidade e limitações
 
-Histórico e ajustes ficam neste aparelho. O app não envia texto de tela nem endereços a um servidor. A leitura depende do que cada versão dos apps oferece à Acessibilidade e deve ser validada em ofertas reais. Não é afiliado a Uber, 99, inDrive, GanhoPro ou outras plataformas.
+Histórico e ajustes ficam neste aparelho. As imagens capturadas pelo OCR são processadas localmente e não são salvas nem enviadas a servidor. A captura visual requer Android 11 ou superior. O OCR contínuo examina a tela a cada ~1,4 s enquanto ativado e pode gastar bateria; telas protegidas por alguns apps podem ficar pretas, e textos que aparecem por pouco tempo podem escapar. Confira os valores antes de decidir. Não é afiliado a Uber, 99, inDrive, GanhoPro ou outras plataformas.

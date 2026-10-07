@@ -1,10 +1,20 @@
 package com.moc.corridaboa
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityService.ScreenshotResult
+import android.accessibilityservice.AccessibilityService.TakeScreenshotCallback
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
-import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
+import android.provider.Settings
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.Locale
 import kotlin.math.max
 
@@ -15,19 +25,33 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
     private var lastAnnouncedAt = 0L
     private var lastRidePackage: String? = null
     private var lastRideScreenText: String? = null
+    private var screenshotInFlight = false
+    private var lastOcrRequestAt = 0L
+    private val handler = Handler(Looper.getMainLooper())
+    private val textRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private val supportedPackages = setOf(
         "com.ubercab.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver",
         "sinet.startup.inDriver"
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val history by lazy { RideHistory(this) }
+    private val continuousOcrLoop = object : Runnable {
+        override fun run() {
+            if (!settings.getBoolean(Prefs.OCR_CONTINUOUS, false)) return
+            captureVisibleScreen(manual = false, sourcePackage = "visual-scan", baseText = null)
+            handler.postDelayed(this, 1_400)
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         tts = TextToSpeech(this, this)
+        val continuous = settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
         if (Settings.canDrawOverlays(this)) {
-            OverlayManager.showFloatingButton(this) { rereadCurrentOffer() }
+            OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
+            OverlayManager.setOcrMode(continuous)
         }
+        if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) handler.post(continuousOcrLoop)
     }
 
     override fun onInit(status: Int) {
@@ -46,37 +70,142 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
             return
         }
         if (Settings.canDrawOverlays(this)) {
-            OverlayManager.showFloatingButton(this) { rereadCurrentOffer() }
+            OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
         }
-        val root = rootInActiveWindow ?: return
+        val root = rootInActiveWindow
         val screenText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         lastRidePackage = pkg
         lastRideScreenText = screenText
-        analyzeScreen(pkg, screenText, manual = false)
+        if (hasEssentialText(screenText)) {
+            analyzeScreen(pkg, screenText, manual = false)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // If the offer is drawn as pixels rather than accessibility text, try local OCR.
+            captureVisibleScreen(manual = false, sourcePackage = pkg, baseText = screenText)
+        } else if (screenText.isNotBlank()) {
+            analyzeScreen(pkg, screenText, manual = false)
+        }
     }
 
     private fun rereadCurrentOffer() {
-        val pkg = lastRidePackage
-        val text = lastRideScreenText
-        if (pkg == null || text == null) {
-            val warning = "Abra o app de motorista e aguarde uma oferta para ler."
-            OverlayManager.show(this, warning, OverlayManager.WARNING)
-            speak(warning)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            captureVisibleScreen(manual = true, sourcePackage = "visual-scan", baseText = null)
+        } else {
+            val pkg = lastRidePackage
+            val text = lastRideScreenText
+            if (pkg != null && text != null) analyzeScreen(pkg, text, manual = true)
+            else showScanMessage("A leitura visual precisa do Android 11 ou mais recente.", OverlayManager.WARNING)
+        }
+    }
+
+    private fun toggleContinuousOcr() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            showScanMessage("OCR contínuo exige Android 11 ou mais recente.", OverlayManager.WARNING)
             return
         }
-        analyzeScreen(pkg, text, manual = true)
+        val enabled = !settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
+        settings.edit().putBoolean(Prefs.OCR_CONTINUOUS, enabled).apply()
+        OverlayManager.setOcrMode(enabled)
+        if (enabled) {
+            handler.removeCallbacks(continuousOcrLoop)
+            handler.post(continuousOcrLoop)
+            android.widget.Toast.makeText(this, "OCR contínuo ligado — segure a bolinha para desligar", android.widget.Toast.LENGTH_LONG).show()
+        } else {
+            handler.removeCallbacks(continuousOcrLoop)
+            android.widget.Toast.makeText(this, "OCR contínuo desligado", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
+
+    private fun captureVisibleScreen(manual: Boolean, sourcePackage: String, baseText: String?) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            if (manual) {
+                val cached = lastRideScreenText
+                if (cached != null && lastRidePackage != null) analyzeScreen(lastRidePackage!!, cached, manual = true)
+                else showScanMessage("A leitura visual precisa do Android 11 ou mais recente.", OverlayManager.WARNING)
+            }
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (screenshotInFlight || (!manual && now - lastOcrRequestAt < 1_100)) return
+        screenshotInFlight = true
+        lastOcrRequestAt = now
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(screenshot: ScreenshotResult) {
+                    val bitmap = try {
+                        Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                            ?.copy(Bitmap.Config.ARGB_8888, false)
+                    } catch (_: Exception) { null }
+                    try { screenshot.hardwareBuffer.close() } catch (_: Exception) { }
+                    if (bitmap == null) {
+                        screenshotInFlight = false
+                        if (manual) screenshotFailed()
+                        return
+                    }
+                    textRecognizer.process(InputImage.fromBitmap(bitmap, 0))
+                        .addOnSuccessListener { vision ->
+                            val visibleText = vision.text
+                            bitmap.recycle()
+                            screenshotInFlight = false
+                            val combined = if (sourcePackage in supportedPackages && !baseText.isNullOrBlank()) {
+                                "$baseText $visibleText"
+                            } else visibleText
+                            if (combined.isNotBlank()) {
+                                if (sourcePackage in supportedPackages) {
+                                    lastRidePackage = sourcePackage
+                                    lastRideScreenText = combined
+                                }
+                                analyzeScreen(sourcePackage, combined, manual)
+                            } else if (manual) {
+                                showScanMessage("Não encontrei texto legível nesta tela. Tente enquanto o preço estiver aparecendo.", OverlayManager.WARNING)
+                            }
+                        }
+                        .addOnFailureListener {
+                            bitmap.recycle()
+                            screenshotInFlight = false
+                            if (manual) screenshotFailed()
+                        }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    screenshotInFlight = false
+                    if (manual) screenshotFailed()
+                }
+            })
+        } catch (_: Exception) {
+            screenshotInFlight = false
+            if (manual) screenshotFailed()
+        }
+    }
+
+    private fun screenshotFailed() {
+        val pkg = lastRidePackage
+        val text = lastRideScreenText
+        if (pkg != null && !text.isNullOrBlank() && hasEssentialText(text)) {
+            analyzeScreen(pkg, text, manual = true)
+        } else {
+            showScanMessage("Não consegui capturar esta tela. Ela pode estar protegida ou o texto pode ter passado rápido.", OverlayManager.WARNING)
+        }
+    }
+
+    private fun showScanMessage(message: String, status: Int) {
+        OverlayManager.show(this, message, status)
+        speak(message)
+    }
+
+    private fun hasEssentialText(text: String): Boolean =
+        PRICE.containsMatchIn(text) && KM.containsMatchIn(text) && MINUTES.containsMatchIn(text)
 
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
         val screenText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-        val fare = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble() ?: return
+        val fare = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble()
+        if (fare == null) {
+            if (manual) showScanMessage("Não encontrei um preço de corrida nesta tela.", OverlayManager.WARNING)
+            return
+        }
 
-        // Em telas que mostram “10 min (3,9 km)” e “21 min (8,5 km)”, usa cada trecho e endereço.
         val routeParts = ROUTE.findAll(screenText).toList()
-        val allDistances = KM.findAll(screenText)
-            .mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
-        val allMinutes = MINUTES.findAll(screenText)
-            .mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.take(2).toList()
+        val allDistances = KM.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
+        val allMinutes = MINUTES.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.take(2).toList()
         val kmBusca = routeParts.getOrNull(0)?.groupValues?.getOrNull(2)?.toBrazilianDouble()
             ?: if (allDistances.size >= 2) allDistances[0] else 0.0
         val kmViagem = routeParts.getOrNull(1)?.groupValues?.getOrNull(2)?.toBrazilianDouble()
@@ -90,7 +219,7 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
         val totalKm = kmBusca + kmViagem
         if (totalKm <= 0.0 || tempoTotal <= 0.0) {
             val signature = "incompleto:$fare:${screenText.hashCode()}"
-            if (shouldAnnounce(signature)) {
+            if (manual || shouldAnnounce(signature)) {
                 val warning = "Oferta detectada, mas não consegui ler todos os quilômetros ou o tempo. Confira os dados antes de decidir."
                 OverlayManager.show(this, warning, OverlayManager.WARNING)
                 speak(warning)
@@ -111,8 +240,6 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
         val netHour = net / (tempoTotal / 60.0)
         val netMinute = net / tempoTotal
         val netKm = net / totalKm
-
-        // A recomendação prioriza o que sobra após combustível; também mostra os indicadores brutos.
         val status = when {
             net <= 0.0 || netHour < minimumHourly -> OverlayManager.BAD
             netHour >= goodHourly && netKm >= goodPerKm -> OverlayManager.GOOD
@@ -131,7 +258,6 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
             )
             runCatching { history.save(record) }
         }
-
         val title = when (status) {
             OverlayManager.GOOD -> "CORRIDA BOA — ACEITAR"
             OverlayManager.MAYBE -> "MÉDIA — AVALIAR"
@@ -177,6 +303,8 @@ Líquido: ${netHour.money()}/h • ${netMinute.money()}/min • ${netKm.money()}
 
     override fun onInterrupt() { tts?.stop() }
     override fun onDestroy() {
+        handler.removeCallbacks(continuousOcrLoop)
+        textRecognizer.close()
         OverlayManager.hide(this)
         tts?.stop()
         tts?.shutdown()

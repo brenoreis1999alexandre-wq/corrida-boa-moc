@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">RotaLume</string>
-    <string name="accessibility_desc">Lê na tela do app de motorista o preço, quilômetros e tempo da oferta para calcular uma estimativa local e mostrar uma recomendação. Não aceita nem recusa corridas automaticamente.</string>
+    <string name="accessibility_desc">Lê preço, quilômetros e tempo visíveis nos apps de motorista e, quando ativado, usa OCR local da tela para reconhecer texto visual. Não aceita nem recusa corridas.</string>
 </resources>

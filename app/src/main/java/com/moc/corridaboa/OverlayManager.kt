@@ -29,7 +29,7 @@ internal object OverlayManager {
     private val handler = Handler(Looper.getMainLooper())
     private val removeResultTask = Runnable { removeResult() }
 
-    fun showFloatingButton(service: AccessibilityService, onTap: () -> Unit) {
+    fun showFloatingButton(service: AccessibilityService, onTap: () -> Unit, onLongPress: () -> Unit) {
         if (!Settings.canDrawOverlays(service)) return
         handler.post {
             if (bubbleView != null) return@post
@@ -64,7 +64,7 @@ internal object OverlayManager {
                 gravity = Gravity.CENTER
                 background = circle
                 elevation = dp(service, 10).toFloat()
-                contentDescription = "RotaLume: toque para reler a oferta; arraste para mover"
+                contentDescription = "RotaLume: toque para ler a tela, segure para OCR contínuo, arraste para mover"
                 includeFontPadding = false
             }
             val touchSlop = ViewConfiguration.get(service).scaledTouchSlop.toFloat()
@@ -72,6 +72,7 @@ internal object OverlayManager {
             var downRawY = 0f
             var startX = 0
             var startY = 0
+            var downAt = 0L
             var moved = false
             bubble.setOnTouchListener { _, event ->
                 when (event.actionMasked) {
@@ -80,6 +81,7 @@ internal object OverlayManager {
                         downRawY = event.rawY
                         startX = params.x
                         startY = params.y
+                        downAt = System.currentTimeMillis()
                         moved = false
                         true
                     }
@@ -97,6 +99,8 @@ internal object OverlayManager {
                     MotionEvent.ACTION_UP -> {
                         if (moved) {
                             prefs.edit().putInt(POS_X, params.x).putInt(POS_Y, params.y).apply()
+                        } else if (System.currentTimeMillis() - downAt >= ViewConfiguration.getLongPressTimeout()) {
+                            onLongPress()
                         } else {
                             onTap()
                         }
@@ -112,6 +116,21 @@ internal object OverlayManager {
                 bubbleView = bubble
             } catch (_: Exception) {
                 bubbleView = null
+            }
+        }
+    }
+
+    fun setOcrMode(active: Boolean) {
+        handler.post {
+            bubbleView?.apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(Color.rgb(21, 232, 167), Color.rgb(0, 155, 117))
+                ).apply {
+                    shape = GradientDrawable.OVAL
+                    setStroke(3, if (active) Color.rgb(255, 204, 78) else Color.argb(220, 231, 255, 247))
+                }
+                contentDescription = if (active) "RotaLume: OCR contínuo ligado; segure para desligar, arraste para mover" else "RotaLume: toque para ler a tela, segure para OCR contínuo, arraste para mover"
             }
         }
     }

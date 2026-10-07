@@ -299,7 +299,7 @@ class MainActivity : Activity() {
         content.addView(space(10))
         val bubble = card()
         bubble.addView(label("BOLHA FLUTUANTE R$", 14, accent, true))
-        bubble.addView(label("Arraste a bolinha para colocá-la onde preferir. Toque nela para reler a última oferta capturada. A leitura automática continua ativa.", 13, secondary))
+        bubble.addView(label("Arraste a bolinha para onde quiser. Toque para ler a tela atual por OCR; segure para ligar ou desligar o OCR contínuo (Android 11+). As imagens são processadas localmente; o modo contínuo pode gastar mais bateria.", 13, secondary))
         content.addView(bubble)
         content.addView(space(12))
         content.addView(label("O cálculo desconta combustível estimado. Não inclui manutenção, pneus, depreciação, impostos ou outros custos.", 12, secondary))
@@ -446,4 +446,5 @@ internal object Prefs {
     const val MIN_HORA = "min_hour"
     const val BOA_HORA = "good_hour"
     const val MIN_KM = "good_km"
+    const val OCR_CONTINUOUS = "ocr_continuous"
 }

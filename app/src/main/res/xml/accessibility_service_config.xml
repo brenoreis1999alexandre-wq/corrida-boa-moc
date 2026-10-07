@@ -4,5 +4,6 @@
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="350"
     android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
     android:description="@string/accessibility_desc"
-    android:packageNames="com.ubercab.driver,com.d99.android.driver,com.99Taxis.driver,com.didi.driver" />
+    android:packageNames="com.ubercab.driver,com.d99.android.driver,com.99Taxis.driver,com.didi.driver,sinet.startup.inDriver" />
