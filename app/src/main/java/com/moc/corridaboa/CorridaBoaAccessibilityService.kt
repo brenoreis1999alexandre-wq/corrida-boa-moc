@@ -16,6 +16,7 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
         "com.ubercab.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver"
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
+    private val history by lazy { RideHistory(this) }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -35,16 +36,28 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
         }
         val root = rootInActiveWindow ?: return
         val screenText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-        val price = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble() ?: return
-        val distances = KM.findAll(screenText)
-            .mapNotNull { it.groupValues.getOrNull(1)?.replace(',', '.')?.toDoubleOrNull() }
-            .toList()
-        val minutes = MINUTES.findAll(screenText)
-            .mapNotNull { it.groupValues.getOrNull(1)?.replace(',', '.')?.toDoubleOrNull() }
-            .take(2).toList()
-        if (distances.isEmpty() || minutes.isEmpty()) {
-            val sig = "incompleto:$price:${screenText.hashCode()}"
-            if (shouldAnnounce(sig)) {
+        val fare = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble() ?: return
+
+        // Em telas que mostram “10 min (3,9 km)” e “21 min (8,5 km)”, usa cada trecho e endereço.
+        val routeParts = ROUTE.findAll(screenText).toList()
+        val allDistances = KM.findAll(screenText)
+            .mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
+        val allMinutes = MINUTES.findAll(screenText)
+            .mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.take(2).toList()
+        val kmBusca = routeParts.getOrNull(0)?.groupValues?.getOrNull(2)?.toBrazilianDouble()
+            ?: if (allDistances.size >= 2) allDistances[0] else 0.0
+        val kmViagem = routeParts.getOrNull(1)?.groupValues?.getOrNull(2)?.toBrazilianDouble()
+            ?: if (allDistances.size >= 2) allDistances[1] else allDistances.firstOrNull() ?: 0.0
+        val tempoTotal = if (routeParts.size >= 2) {
+            (routeParts[0].groupValues[1].toBrazilianDouble() ?: 0.0) +
+                (routeParts[1].groupValues[1].toBrazilianDouble() ?: 0.0)
+        } else allMinutes.sum()
+        val pickup = routeParts.getOrNull(0)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
+        val dropoff = routeParts.getOrNull(1)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
+        val totalKm = kmBusca + kmViagem
+        if (totalKm <= 0.0 || tempoTotal <= 0.0) {
+            val signature = "incompleto:$fare:${screenText.hashCode()}"
+            if (shouldAnnounce(signature)) {
                 val warning = "Oferta detectada, mas não consegui ler todos os quilômetros ou o tempo. Confira os dados antes de decidir."
                 OverlayManager.show(this, warning, OverlayManager.WARNING)
                 speak(warning)
@@ -52,47 +65,50 @@ class CorridaBoaAccessibilityService : AccessibilityService(), TextToSpeech.OnIn
             return
         }
 
-        // Com uma distância só, ela é tratada como total; não inventamos km de busca.
-        val kmBusca = if (distances.size >= 2) distances.first() else 0.0
-        val kmViagem = if (distances.size >= 2) distances[1] else distances.first()
-        val kmTotal = kmBusca + kmViagem
-        val tempoTotal = if (minutes.size >= 2) minutes.sum() else minutes.first()
-        if (kmTotal <= 0.0 || tempoTotal <= 0.0) return
-
         val gasPrice = settings.getFloat(Prefs.GAS, 6.20f).toDouble()
         val consumption = max(0.1, settings.getFloat(Prefs.CONSUMO, 12f).toDouble())
         val minimumHourly = settings.getFloat(Prefs.MIN_HORA, 25f).toDouble()
         val goodHourly = settings.getFloat(Prefs.BOA_HORA, 35f).toDouble()
         val goodPerKm = settings.getFloat(Prefs.MIN_KM, 2f).toDouble()
-        val fuelCost = kmTotal * gasPrice / consumption
-        val net = price - fuelCost
-        val hourly = net / (tempoTotal / 60.0)
-        val perMinute = net / tempoTotal
-        val perKm = net / kmTotal
+        val fuelCost = totalKm * gasPrice / consumption
+        val net = fare - fuelCost
+        val grossHour = fare / (tempoTotal / 60.0)
+        val grossMinute = fare / tempoTotal
+        val grossKm = fare / totalKm
+        val netHour = net / (tempoTotal / 60.0)
+        val netMinute = net / tempoTotal
+        val netKm = net / totalKm
+
+        // A recomendação prioriza o que sobra após combustível; também mostra os indicadores brutos.
         val status = when {
-            net <= 0.0 || hourly < minimumHourly -> OverlayManager.BAD
-            hourly >= goodHourly && perKm >= goodPerKm -> OverlayManager.GOOD
+            net <= 0.0 || netHour < minimumHourly -> OverlayManager.BAD
+            netHour >= goodHourly && netKm >= goodPerKm -> OverlayManager.GOOD
             else -> OverlayManager.MAYBE
         }
-        val signature = listOf(price, kmBusca, kmViagem, tempoTotal).joinToString("|")
+        val signature = listOf(pkg, fare, kmBusca, kmViagem, tempoTotal, pickup, dropoff).joinToString("|")
         if (!shouldAnnounce(signature)) return
 
+        val record = RideRecord(
+            System.currentTimeMillis(), pickup, dropoff, fare, kmBusca, kmViagem, tempoTotal, fuelCost, net,
+            grossHour, grossKm, grossMinute, netHour, netKm, netMinute, status
+        )
+        runCatching { history.save(record) }
+
         val title = when (status) {
-            OverlayManager.GOOD -> "CORRIDA BOA — PEGAR"
-            OverlayManager.MAYBE -> "COMPENSA — AVALIE"
+            OverlayManager.GOOD -> "CORRIDA BOA — ACEITAR"
+            OverlayManager.MAYBE -> "MÉDIA — AVALIAR"
             else -> "CORRIDA RUIM — NÃO ACEITAR"
         }
         val details = """$title
-Oferta: ${price.money()}
-Buscar: ${kmBusca.oneDecimal()} km  •  Viagem: ${kmViagem.oneDecimal()} km
-Total: ${kmTotal.oneDecimal()} km  •  Tempo: ${tempoTotal.oneDecimal()} min
-Combustível estimado: ${fuelCost.money()}
-Líquido estimado: ${net.money()}
-${hourly.money()}/h  •  ${perMinute.money()}/min  •  ${perKm.money()}/km"""
+${fare.money()}  •  Buscar ${kmBusca.oneDecimal()} km + viagem ${kmViagem.oneDecimal()} km
+Total ${totalKm.oneDecimal()} km  •  ${tempoTotal.oneDecimal()} min
+Lucro após combustível: ${net.money()}
+Bruto: ${grossHour.money()}/h • ${grossMinute.money()}/min • ${grossKm.money()}/km
+Líquido: ${netHour.money()}/h • ${netMinute.money()}/min • ${netKm.money()}/km"""
         OverlayManager.show(this, details, status)
         val spoken = when (status) {
-            OverlayManager.GOOD -> "Corrida boa. Pegar corrida."
-            OverlayManager.MAYBE -> "Corrida pode compensar. Avalie."
+            OverlayManager.GOOD -> "Corrida boa. Aceitar."
+            OverlayManager.MAYBE -> "Corrida média. Avaliar."
             else -> "Corrida ruim. Não aceitar."
         }
         speak(spoken)
@@ -100,7 +116,7 @@ ${hourly.money()}/h  •  ${perMinute.money()}/min  •  ${perKm.money()}/km"""
 
     private fun shouldAnnounce(signature: String): Boolean {
         val now = System.currentTimeMillis()
-        if (signature == lastSignature && now - lastAnnouncedAt < 45_000) return false
+        if (signature == lastSignature && now - lastAnnouncedAt < 180_000) return false
         lastSignature = signature
         lastAnnouncedAt = now
         return true
@@ -134,12 +150,15 @@ ${hourly.money()}/h  •  ${perMinute.money()}/min  •  ${perKm.money()}/km"""
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
         private val KM = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?km""", RegexOption.IGNORE_CASE)
         private val MINUTES = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?min""", RegexOption.IGNORE_CASE)
+        private val ROUTE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)\s*(.*?)(?=[0-9]+(?:[.,][0-9]+)?\s*min\s*\(\s*[0-9]+(?:[.,][0-9]+)?\s*km\s*\)|$)""", RegexOption.IGNORE_CASE)
     }
 }
 
 private fun String.toBrazilianDouble(): Double? {
-    val normalized = trim().let { if (it.contains(',')) it.replace(".", "").replace(',', '.') else it }
+    val value = trim()
+    val normalized = if (value.contains(',')) value.replace(".", "").replace(',', '.') else value
     return normalized.toDoubleOrNull()
 }
+private fun String.cleanRouteText(): String = replace(Regex("""\s+"""), " ").trim().trim(' ', '-', '•', '|').take(150)
 private fun Double.money(): String = "R$ " + String.format(Locale("pt", "BR"), "%.2f", this)
 private fun Double.oneDecimal(): String = String.format(Locale("pt", "BR"), "%.1f", this)
