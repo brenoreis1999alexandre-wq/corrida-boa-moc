@@ -33,6 +33,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val history by lazy { RideHistory(this) }
+    private data class OfferContext(val text: String, val fare: Double)
     private fun monitoringEnabled() = settings.getBoolean(Prefs.MONITORING_ENABLED, true)
     private val continuousOcrLoop = object : Runnable {
         override fun run() {
@@ -216,16 +217,67 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
 
     private fun hasEssentialText(text: String): Boolean {
         if (!PRICE.containsMatchIn(text) || !OFFER_ACTION.containsMatchIn(text)) return false
-        val routes = ROUTE.findAll(text).count()
+        val routes = ROUTE_HEADER.findAll(text).count()
         val distances = KM.findAll(text).count()
         val minutes = MINUTES.findAll(text).count()
         return routes >= 2 || (distances >= 2 && minutes >= 2)
     }
 
+    private fun extractOfferContext(text: String): OfferContext? {
+        val prices = PRICE.findAll(text).filterNot { match ->
+            UNIT_RATE_SUFFIX.containsMatchIn(text.substring((match.range.last + 1).coerceAtMost(text.length)))
+        }.toList()
+        val actions = OFFER_ACTION.findAll(text).toList()
+        if (prices.isEmpty() || actions.isEmpty()) return null
+
+        var bestStart = -1
+        var bestEnd = -1
+        var bestLength = MAX_OFFER_CONTEXT + 1
+        var bestFare: Double? = null
+        fun consider(parts: List<MatchResult>) {
+            val orderedParts = parts.sortedBy { it.range.first }
+            for (price in prices) for (action in actions) {
+                // Offer cards normally show the fare, then its route, then Accept/Decline.
+                // Ignore route text outside that bracket, such as the trip already in progress.
+                if (price.range.last >= orderedParts.first().range.first || orderedParts.last().range.last >= action.range.first) continue
+                val tokens = parts + price + action
+                val start = tokens.minOf { it.range.first }
+                val end = tokens.maxOf { it.range.last } + 1
+                val length = end - start
+                if (length < bestLength && length <= MAX_OFFER_CONTEXT) {
+                    bestStart = start
+                    bestEnd = end
+                    bestLength = length
+                    bestFare = price.groupValues.getOrNull(1)?.toBrazilianDouble()
+                }
+            }
+        }
+
+        val routeHeaders = ROUTE_HEADER.findAll(text).toList()
+        if (routeHeaders.size >= 2) {
+            for (i in 0 until routeHeaders.lastIndex) {
+                for (j in i + 1 until routeHeaders.size) consider(listOf(routeHeaders[i], routeHeaders[j]))
+            }
+        } else {
+            val distances = KM.findAll(text).toList()
+            val minutes = MINUTES.findAll(text).toList()
+            if (distances.size >= 2 && minutes.size >= 2) {
+                for (i in 0 until distances.lastIndex) for (j in i + 1 until distances.size) {
+                    for (m in 0 until minutes.lastIndex) for (n in m + 1 until minutes.size) {
+                        consider(listOf(distances[i], distances[j], minutes[m], minutes[n]))
+                    }
+                }
+            }
+        }
+        if (bestStart < 0 || bestEnd <= bestStart) return null
+        val fare = bestFare ?: return null
+        return OfferContext(text.substring(bestStart, bestEnd).trim(), fare)
+    }
+
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
-        val screenText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-        if (!OFFER_ACTION.containsMatchIn(screenText)) {
+        val fullText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+        if (!OFFER_ACTION.containsMatchIn(fullText)) {
             if (manual) {
                 showScanMessage("Não identifiquei uma oferta ativa nesta tela; não vou calcular usando a navegação do mapa.", OverlayManager.WARNING)
             } else {
@@ -233,11 +285,14 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             }
             return
         }
-        val fare = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble()
-        if (fare == null) {
-            if (manual) showScanMessage("Não encontrei um preço de corrida nesta tela.", OverlayManager.WARNING)
+        val offerContext = extractOfferContext(fullText)
+        if (offerContext == null) {
+            if (manual) showScanMessage("Não consegui separar os dados da oferta nova do trajeto que já está em andamento. Deixe a oferta visível e tente de novo.", OverlayManager.WARNING)
+            else OverlayManager.hideResult()
             return
         }
+        val screenText = offerContext.text
+        val fare = offerContext.fare
 
         val routeParts = ROUTE.findAll(screenText).toList()
         val allDistances = KM.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
@@ -366,10 +421,13 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 .putBoolean(Prefs.MONITORING_ENABLED, enabled).apply()
             activeService?.applyMonitoringState()
         }
+        private const val MAX_OFFER_CONTEXT = 1_200
         private val OFFER_ACTION = Regex("""\b(selecionar|aceitar|aceite|aceito|confirmar|contraoferta|recusar|rejeitar)\b""", RegexOption.IGNORE_CASE)
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
+        private val UNIT_RATE_SUFFIX = Regex("""^\s*/\s*(?:km|h|hr|min|hora)\b""", RegexOption.IGNORE_CASE)
         private val KM = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?km""", RegexOption.IGNORE_CASE)
         private val MINUTES = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?min""", RegexOption.IGNORE_CASE)
+        private val ROUTE_HEADER = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)""", RegexOption.IGNORE_CASE)
         private val ROUTE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)\s*(.*?)(?=[0-9]+(?:[.,][0-9]+)?\s*min\s*\(\s*[0-9]+(?:[.,][0-9]+)?\s*km\s*\)|$)""", RegexOption.IGNORE_CASE)
     }
 }
