@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityService.ScreenshotResult
 import android.accessibilityservice.AccessibilityService.TakeScreenshotCallback
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -33,7 +34,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val history by lazy { RideHistory(this) }
-    private data class OfferContext(val text: String, val fare: Double)
+    private data class OfferContext(val text: String, val fare: Double, val distancesKm: List<Double>, val durationsMin: List<Double>)
     private fun monitoringEnabled() = settings.getBoolean(Prefs.MONITORING_ENABLED, true)
     private val continuousOcrLoop = object : Runnable {
         override fun run() {
@@ -173,21 +174,27 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     }
                     textRecognizer.process(InputImage.fromBitmap(bitmap, 0))
                         .addOnSuccessListener { vision ->
-                            val visibleText = vision.text
+                            val excludedBounds = OverlayManager.screenshotExclusionRects()
+                            val visibleText = vision.textBlocks.flatMap { it.lines }
+                                .filter { line ->
+                                    val box = line.boundingBox
+                                    box == null || excludedBounds.none { excluded -> Rect.intersects(box, excluded) }
+                                }
+                                .sortedWith(compareBy({ it.boundingBox?.top ?: Int.MAX_VALUE }, { it.boundingBox?.left ?: 0 }))
+                                .joinToString(" ") { it.text }
+                                .replace(Regex("""\s+"""), " ").trim()
                             bitmap.recycle()
                             screenshotInFlight = false
-                            val combined = if (sourcePackage in supportedPackages && !baseText.isNullOrBlank()) {
-                                "$baseText $visibleText"
-                            } else visibleText
-                            if (combined.isNotBlank()) {
-                                if (sourcePackage in supportedPackages) {
-                                    lastRidePackage = sourcePackage
-                                    lastRideScreenText = combined
-                                }
-                                val exactOffer = extractOfferContext(baseText.orEmpty())
-                                    ?: extractOfferContext(visibleText)
-                                    ?: extractOfferContext(combined)
-                                analyzeScreen(sourcePackage, exactOffer?.text ?: combined, manual)
+                            val exactOffer = extractOfferContext(baseText.orEmpty()) ?: extractOfferContext(visibleText)
+                            val fallbackText = if (!baseText.isNullOrBlank()) baseText else visibleText
+                            if (sourcePackage in supportedPackages) {
+                                lastRidePackage = sourcePackage
+                                lastRideScreenText = fallbackText
+                            }
+                            if (exactOffer != null) {
+                                analyzeScreen(sourcePackage, exactOffer.text, manual)
+                            } else if (manual && visibleText.isNotBlank()) {
+                                analyzeScreen(sourcePackage, visibleText, manual = true)
                             } else if (manual) {
                                 showScanMessage("Não encontrei texto legível nesta tela. Tente enquanto o preço estiver aparecendo.", OverlayManager.WARNING)
                             }
@@ -227,43 +234,52 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     private fun hasEssentialText(text: String): Boolean = extractOfferContext(text) != null
 
     private fun extractOfferContext(text: String): OfferContext? {
+        val actions = OFFER_ACTION.findAll(text).toList()
+        if (actions.isEmpty()) return null
+        val candidates = linkedMapOf<String, OfferContext>()
         val prices = PRICE.findAll(text).filterNot { match ->
             val suffix = text.substring((match.range.last + 1).coerceAtMost(text.length))
             val prefix = text.substring(0, match.range.first).takeLast(12).trimEnd()
-            val unitRate = UNIT_RATE_SUFFIX.containsMatchIn(suffix)
-            val includedBonus = prefix.endsWith("+") && INCLUDED_BONUS_SUFFIX.containsMatchIn(suffix)
-            unitRate || includedBonus
+            UNIT_RATE_SUFFIX.containsMatchIn(suffix) ||
+                (prefix.endsWith("+") && INCLUDED_BONUS_SUFFIX.containsMatchIn(suffix))
         }.toList()
-        val distinctAmounts = prices.mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.distinct()
-        if (distinctAmounts.size != 1) return null
-        val actions = OFFER_ACTION.findAll(text).toList()
-        if (prices.isEmpty() || actions.isEmpty()) return null
 
-        val candidates = mutableMapOf<String, OfferContext>()
+        // A new-offer card starts at its displayed payout. Never take route details
+        // before that payout (they can belong to the ride already in progress).
+        // Only accept a price/action pair enclosing exactly two complete offer legs.
         for (price in prices) {
             val fare = price.groupValues.getOrNull(1)?.toBrazilianDouble() ?: continue
             for (action in actions) {
                 if (action.range.first <= price.range.last || action.range.last - price.range.first > MAX_OFFER_CONTEXT) continue
-                val routes = ROUTE_HEADER.findAll(text).filter {
-                    it.range.first > price.range.last && it.range.last < action.range.first
-                }.toList()
-                if (routes.size == 2) {
-                    val routeKey = routes.joinToString("|") { "${it.groupValues[1]}:${it.groupValues[2]}" }
-                    val key = "$fare:$routeKey"
-                    candidates[key] = OfferContext(text.substring(price.range.first, action.range.last + 1).trim(), fare)
-                    continue
-                }
-                if (routes.isNotEmpty()) continue
                 val routeText = text.substring(price.range.last + 1, action.range.first)
-                val distances = KM.findAll(routeText).toList()
-                val minutes = MINUTES.findAll(routeText).toList()
-                if (distances.size == 2 && minutes.size == 2) {
-                    val routeKey = distances.zip(minutes).joinToString("|") { (km, minute) -> "${minute.groupValues[1]}:${km.groupValues[1]}" }
-                    val key = "$fare:$routeKey"
-                    candidates[key] = OfferContext(text.substring(price.range.first, action.range.last + 1).trim(), fare)
+                val headers = ROUTE_HEADER.findAll(routeText).toList()
+                val distances: List<Double>
+                val durations: List<Double>
+                if (headers.isNotEmpty()) {
+                    // An extra route header means another trip/route is mixed in: fail closed.
+                    if (headers.size != 2) continue
+                    durations = headers.mapNotNull { it.groupValues[1].toBrazilianDouble() }
+                    distances = headers.mapNotNull { it.groupValues[2].toBrazilianDouble() }
+                    if (durations.size != 2 || distances.size != 2) continue
+                } else {
+                    // Some versions expose time and distance as separate text nodes.
+                    // Exclude the displayed unit rate (e.g. R$ 1,16/km) from route km.
+                    val distanceMatches = KM.findAll(routeText).filterNot { km ->
+                        val prefix = routeText.substring(0, km.range.first).takeLast(14).trimEnd()
+                        prefix.endsWith("/") || prefix.endsWith("por", ignoreCase = true)
+                    }.toList()
+                    val minuteMatches = MINUTES.findAll(routeText).toList()
+                    if (distanceMatches.size != 2 || minuteMatches.size != 2) continue
+                    distances = distanceMatches.mapNotNull { it.groupValues[1].toBrazilianDouble() }
+                    durations = minuteMatches.mapNotNull { it.groupValues[1].toBrazilianDouble() }
+                    if (durations.size != 2 || distances.size != 2) continue
                 }
+                val contextText = text.substring(price.range.first, action.range.last + 1).trim()
+                val key = "$fare:${distances.joinToString(",")}:${durations.joinToString(",")}"
+                candidates[key] = OfferContext(contextText, fare, distances, durations)
             }
         }
+        // If there is more than one plausible payout/route grouping, do not guess.
         return candidates.values.singleOrNull()
     }
 
@@ -308,37 +324,11 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val screenText = offerContext.text
         val fare = offerContext.fare
 
-        val routeParts = ROUTE.findAll(screenText).toList()
-        val allDistances = KM.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
-        val allMinutes = MINUTES.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
-        val completeRoute = routeParts.size >= 2 || (allDistances.size >= 2 && allMinutes.size >= 2)
-        if (!completeRoute) {
-            if (allDistances.isEmpty() || allMinutes.isEmpty() || !OFFER_ACTION.containsMatchIn(screenText)) {
-                if (manual) showScanMessage("Oferta encontrada, mas faltam distância e tempo para calcular.", OverlayManager.WARNING)
-                return
-            }
-            val partial = buildString {
-                append("OFERTA DETECTADA — LEITURA PARCIAL\nValor mostrado: ${fare.money()}\n")
-                if (allDistances.isNotEmpty()) append("Quilômetros lidos: ${allDistances.take(2).sum().oneDecimal()} km\n")
-                if (allMinutes.isNotEmpty()) append("Tempo lido: ${allMinutes.take(2).sum().oneDecimal()} min\n")
-                append("Não calculei o lucro estimado porque faltam dados da rota.")
-            }
-            val signature = "incompleto:$fare:${screenText.hashCode()}"
-            if (manual || shouldDisplay(signature)) OverlayManager.show(this, partial, OverlayManager.WARNING)
-            return
-        }
-        val kmBusca = if (routeParts.size >= 2) {
-            routeParts[0].groupValues[2].toBrazilianDouble() ?: 0.0
-        } else allDistances[0]
-        val kmViagem = if (routeParts.size >= 2) {
-            routeParts[1].groupValues[2].toBrazilianDouble() ?: 0.0
-        } else allDistances[1]
-        val tempoTotal = if (routeParts.size >= 2) {
-            (routeParts[0].groupValues[1].toBrazilianDouble() ?: 0.0) +
-                (routeParts[1].groupValues[1].toBrazilianDouble() ?: 0.0)
-        } else allMinutes.take(2).sum()
-        val pickup = routeParts.getOrNull(0)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
-        val dropoff = routeParts.getOrNull(1)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
+        val kmBusca = offerContext.distancesKm[0]
+        val kmViagem = offerContext.distancesKm[1]
+        val tempoTotal = offerContext.durationsMin.sum()
+        val pickup = ROUTE.findAll(screenText).toList().getOrNull(0)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
+        val dropoff = ROUTE.findAll(screenText).toList().getOrNull(1)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
         val totalKm = kmBusca + kmViagem
         if (totalKm <= 0.0 || tempoTotal <= 0.0) return
 

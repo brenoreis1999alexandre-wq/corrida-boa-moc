@@ -3,6 +3,7 @@ package com.moc.corridaboa
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -28,11 +29,15 @@ internal object OverlayManager {
     private const val POS_X = "bubble_position_x"
     private const val POS_Y = "bubble_position_y"
     private const val RESULT_VISIBLE_MS = 12_000L
+    private const val BUBBLE_PRICE_VISIBLE_MS = 10_000L
     private var windowManager: WindowManager? = null
     private var bubbleView: TextView? = null
     private var resultView: LinearLayout? = null
     private var bubbleStatus: Int? = null
     private var bubbleDuration = ""
+    private var bubblePrice = ""
+    private var bubblePriceVisible = false
+    private var bubblePriceResetTask: Runnable? = null
     private var continuousOcrActive = false
     private val handler = Handler(Looper.getMainLooper())
     private val removeResultTask = Runnable { removeResult() }
@@ -109,6 +114,13 @@ internal object OverlayManager {
                             prefs.edit().putInt(POS_X, params.x).putInt(POS_Y, params.y).apply()
                         } else if (System.currentTimeMillis() - downAt >= ViewConfiguration.getLongPressTimeout()) {
                             onLongPress()
+                        } else if (bubblePriceVisible || resultView != null) {
+                            handler.removeCallbacks(bubblePriceResetTask)
+                            bubblePriceResetTask = null
+                            bubblePriceVisible = false
+                            bubblePrice = ""
+                            removeResult()
+                            renderBubble(service)
                         } else {
                             onTap()
                         }
@@ -148,20 +160,28 @@ internal object OverlayManager {
             shape = GradientDrawable.OVAL
             setStroke(dp(service, 2), if (continuousOcrActive) Color.rgb(255, 204, 78) else Color.argb(220, 231, 255, 247))
         }
-        bubble.textSize = if (bubbleDuration.isBlank()) 18f else 16f
-        bubble.text = if (bubbleDuration.isBlank()) "R\$" else SpannableString("R\$\n${bubbleDuration}m").apply {
-            setSpan(RelativeSizeSpan(0.62f), 3, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val showingFare = bubblePriceVisible && bubblePrice.isNotBlank()
+        bubble.textSize = if (showingFare || bubbleDuration.isNotBlank()) 16f else 18f
+        bubble.text = when {
+            showingFare -> SpannableString("R\$\n$bubblePrice").apply {
+                setSpan(RelativeSizeSpan(0.62f), 3, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            bubbleDuration.isBlank() -> "R\$"
+            else -> SpannableString("R\$\n${bubbleDuration}m").apply {
+                setSpan(RelativeSizeSpan(0.62f), 3, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
         }
         bubble.contentDescription = buildString {
             append("RotaLume")
-            if (bubbleDuration.isNotBlank()) append(": última oferta, duração estimada $bubbleDuration minutos")
+            if (showingFare) append(": oferta $bubblePrice")
+            else if (bubbleDuration.isNotBlank()) append(": última oferta, duração estimada $bubbleDuration minutos")
             when (bubbleStatus) {
                 GOOD -> append(". Recomendação pegar corrida")
                 MAYBE -> append(". Recomendação avaliar corrida")
                 BAD -> append(". Recomendação não pegar corrida")
             }
             if (continuousOcrActive) append(". OCR contínuo ligado; segure para desligar")
-            else append(". Toque para ler, segure para OCR contínuo, arraste para mover")
+            else append(". Toque para fechar resultado se estiver aberto ou ler outra oferta; segure para OCR contínuo")
         }
     }
 
@@ -210,7 +230,18 @@ internal object OverlayManager {
         handler.post {
             bubbleStatus = status
             bubbleDuration = totalMinutes.removeSuffix(",0").removeSuffix(".0")
+            bubblePrice = offerAmount.removePrefix("R$").trim()
+            bubblePriceVisible = bubblePrice.isNotBlank()
+            handler.removeCallbacks(bubblePriceResetTask)
             renderBubble(service)
+            val resetPrice = Runnable {
+                bubblePriceVisible = false
+                bubblePrice = ""
+                bubblePriceResetTask = null
+                renderBubble(service)
+            }
+            bubblePriceResetTask = resetPrice
+            handler.postDelayed(resetPrice, BUBBLE_PRICE_VISIBLE_MS)
             val accent = statusColor(status)
             val decision = when (status) { GOOD -> "PEGAR CORRIDA"; MAYBE -> "AVALIAR CORRIDA"; BAD -> "NÃO PEGAR CORRIDA"; else -> "OFERTA" }
             val card = baseResultCard(service, accent)
@@ -356,6 +387,18 @@ internal object OverlayManager {
         }
     }
 
+    fun screenshotExclusionRects(): List<Rect> {
+        val rects = mutableListOf<Rect>()
+        listOfNotNull(resultView, bubbleView).forEach { view ->
+            if (view.isShown && view.width > 0 && view.height > 0) {
+                val location = IntArray(2)
+                view.getLocationOnScreen(location)
+                rects.add(Rect(location[0], location[1], location[0] + view.width, location[1] + view.height))
+            }
+        }
+        return rects
+    }
+
     fun hideResult() {
         handler.post { removeResult() }
     }
@@ -368,6 +411,10 @@ internal object OverlayManager {
             windowManager = null
             bubbleStatus = null
             bubbleDuration = ""
+            handler.removeCallbacks(bubblePriceResetTask)
+            bubblePriceResetTask = null
+            bubblePrice = ""
+            bubblePriceVisible = false
             continuousOcrActive = false
         }
     }

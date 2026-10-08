@@ -7,9 +7,9 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
 - Botão no painel liga/desliga o monitoramento; ao desligar, a bolha some, e ao ligar, volta.
 - OCR automático só examina Uber Driver, 99 Motorista e inDrive; lê a tarifa principal da oferta, sem confundi-la com a taxa por km ou com bônus já incluídos, e considera os trechos da oferta junto aos controles de aceitar/recusar. Se a tela não identificar claramente uma oferta ativa, não calcula.
-- Prioriza a leitura imediata do texto de Acessibilidade e usa OCR visual como alternativa quando faltam dados.
-- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 12 segundos, mesmo que a oferta suma da tela: recomendação PEGAR, AVALIAR ou NÃO PEGAR e métricas separadas. A bolha mantém a duração estimada e a cor da última recomendação.
-- Toque na bolha para fazer OCR da tela atual; segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
+- Isola a oferta nova pelo preço exibido, pelos dois trechos de rota e pela ação de aceitar/recusar; ignora as rotas anteriores ao preço (como a viagem atual), a taxa por km e o bônus incluído. Se encontrar rotas extras ou dados ambíguos, não calcula em vez de adivinhar. Usa texto de Acessibilidade e OCR visual local quando necessário; o OCR exclui a área da própria bolha/cartão.
+- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 12 segundos, mesmo que a oferta suma da tela: recomendação PEGAR, AVALIAR ou NÃO PEGAR e métricas separadas. A bolha mostra o valor da oferta por 10 segundos e a duração/cor da última recomendação.
+- Toque na bolha enquanto o resultado estiver aberto para fechá-lo; sem resultado, toque para ler a tela. Segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
 - A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.
 - A recomendação é informativa e silenciosa; o app não aceita nem recusa corridas e não fala por voz.
@@ -42,4 +42,4 @@ O workflow GitHub Actions compila APKs de teste e publica o arquivo em GitHub Re
 
 ## Privacidade e limitações
 
-Histórico e ajustes ficam neste aparelho. As imagens capturadas pelo OCR são processadas localmente e não são salvas nem enviadas a servidor. A captura visual requer Android 11 ou superior. O OCR contínuo examina a tela a cada ~1,4 s enquanto ativado e pode gastar bateria; telas protegidas por alguns apps podem ficar pretas, e textos que aparecem por pouco tempo podem escapar. Confira os valores antes de decidir. Não é afiliado a Uber, 99, inDrive, GanhoPro ou outras plataformas.
+Histórico e ajustes ficam neste aparelho. As imagens capturadas pelo OCR são processadas localmente e não são salvas nem enviadas a servidor. O app não solicita GPS: a localização do motorista, sozinha, não corrige a leitura nem fornece a distância/ETA da oferta; a análise usa os trechos exibidos no cartão. Rotas reais exigiriam um provedor de Directions/Routes, coordenadas dos pontos da oferta e configuração de chave/API e cobrança. A captura visual requer Android 11 ou superior. O OCR contínuo examina a tela a cada ~1,4 s enquanto ativado e pode gastar bateria; telas protegidas por alguns apps podem ficar pretas, e textos que aparecem por pouco tempo podem escapar. Confira os valores antes de decidir. Não é afiliado a Uber, 99, inDrive, GanhoPro ou outras plataformas.
