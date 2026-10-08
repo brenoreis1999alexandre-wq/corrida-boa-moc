@@ -215,7 +215,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun hasEssentialText(text: String): Boolean {
-        if (!PRICE.containsMatchIn(text) || !OFFER_ACTION.containsMatchIn(text)) return false
+        if (!PRICE.containsMatchIn(text)) return false
         val routes = ROUTE.findAll(text).count()
         val distances = KM.findAll(text).count()
         val minutes = MINUTES.findAll(text).count()
@@ -225,10 +225,6 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
         val screenText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-        if (!OFFER_ACTION.containsMatchIn(screenText)) {
-            if (manual) showScanMessage("Não identifiquei uma oferta ativa nesta tela.", OverlayManager.WARNING)
-            return
-        }
         val fare = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble()
         if (fare == null) {
             if (manual) showScanMessage("Não encontrei um preço de corrida nesta tela.", OverlayManager.WARNING)
@@ -240,7 +236,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val allMinutes = MINUTES.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
         val completeRoute = routeParts.size >= 2 || (allDistances.size >= 2 && allMinutes.size >= 2)
         if (!completeRoute) {
-            if (allDistances.isEmpty() || allMinutes.isEmpty()) {
+            if (allDistances.isEmpty() || allMinutes.isEmpty() || !OFFER_ACTION.containsMatchIn(screenText)) {
                 if (manual) showScanMessage("Oferta encontrada, mas faltam distância e tempo para calcular.", OverlayManager.WARNING)
                 return
             }

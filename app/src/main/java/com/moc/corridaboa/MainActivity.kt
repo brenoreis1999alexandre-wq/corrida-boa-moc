@@ -142,7 +142,19 @@ class MainActivity : Activity() {
         brandText.addView(label("RotaLume • Montes Claros", 13, accent, true))
         header.addView(brandText)
         content.addView(header)
-        content.addView(space(15))
+        content.addView(space(10))
+        val monitorOn = prefs.getBoolean(Prefs.MONITORING_ENABLED, true)
+        val toggleCard = card()
+        toggleCard.addView(label(if (monitorOn) "MONITORAMENTO LIGADO" else "MONITORAMENTO DESLIGADO", 14, if (monitorOn) lime else secondary, true))
+        toggleCard.addView(space(6))
+        toggleCard.addView(actionButton(if (monitorOn) "Desligar monitoramento" else "Ligar monitoramento") {
+            val newValue = !prefs.getBoolean(Prefs.MONITORING_ENABLED, true)
+            CorridaBoaAccessibilityService.setMonitoringFromActivity(this, newValue)
+            Toast.makeText(this, if (newValue) "Monitoramento ligado" else "Monitoramento desligado", Toast.LENGTH_SHORT).show()
+            renderTab()
+        })
+        content.addView(toggleCard)
+        content.addView(space(10))
 
         val dailyCard = card()
         dailyCard.addView(label("RESUMO DE HOJE", 13, accent, true))
@@ -165,7 +177,6 @@ class MainActivity : Activity() {
         serviceCard.addView(space(5))
         val accessOn = isServiceEnabled()
         val overlayOn = Settings.canDrawOverlays(this)
-        val monitorOn = prefs.getBoolean(Prefs.MONITORING_ENABLED, true)
         val statusText = when {
             !monitorOn -> "MONITORAMENTO DESLIGADO"
             accessOn && overlayOn -> "ATIVO — pronto para ler ofertas"
@@ -175,13 +186,6 @@ class MainActivity : Activity() {
         serviceCard.addView(space(7))
         serviceCard.addView(label("A leitura automática só funciona dentro de uma oferta ativa do Uber, 99 ou inDrive.", 13, secondary))
         serviceCard.addView(space(8))
-        serviceCard.addView(actionButton(if (monitorOn) "Desligar monitoramento" else "Ligar monitoramento") {
-            val newValue = !prefs.getBoolean(Prefs.MONITORING_ENABLED, true)
-            CorridaBoaAccessibilityService.setMonitoringFromActivity(this, newValue)
-            Toast.makeText(this, if (newValue) "Monitoramento ligado" else "Monitoramento desligado", Toast.LENGTH_SHORT).show()
-            renderTab()
-        })
-        serviceCard.addView(space(7))
         serviceCard.addView(actionButton("Configurar permissões") { permissionDialog() })
         content.addView(serviceCard)
         content.addView(space(14))
