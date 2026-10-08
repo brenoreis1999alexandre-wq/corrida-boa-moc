@@ -7,11 +7,11 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
 - Botão no painel liga/desliga o monitoramento; ao desligar, a bolha some, e ao ligar, volta.
 - OCR automático só examina Uber Driver, 99 Motorista e inDrive; exige sinais de uma ação de oferta ativa e dados suficientes da rota, ignorando telas de navegação sem solicitação.
-- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 5 segundos: valor da oferta − custos cadastrados = lucro estimado, R$/km bruto para comparar com a oferta e lucro estimado por km, hora e minuto.
+- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 5 segundos: recomendação PEGAR CORRIDA ou NÃO PEGAR CORRIDA, lucro estimado após custos cadastrados e valores brutos da oferta por km, hora e minuto, em letras maiores e coloridos conforme a recomendação.
 - Toque na bolha para fazer OCR da tela atual; segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
 - A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.
-- Classificação informativa e silenciosa: corrida boa, média ou ruim; cálculos de tarifa, distância, tempo e combustível aparecem na tela, sem fala por voz.
+- A recomendação é informativa e silenciosa; o app não aceita nem recusa corridas e não fala por voz.
 - Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo.
 - Painel resume as ofertas analisadas. Os valores são estimativas de ofertas, não comprovantes de corridas realizadas.
 - Calculadora de ganhos: estima combustível, aluguel/financiamento e outros custos mensais informados por km, e calcula uma meta bruta ideal; os custos mensais são distribuídos pelos km planejados para o mês.
@@ -20,10 +20,10 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 
 ## Critérios iniciais
 
-- A pessoa define metas de lucro estimado por km, hora e minuto.
-- Boa: atinge as três metas; média: atinge uma ou duas; ruim: não atinge nenhuma ou o lucro estimado após os custos cadastrados é ≤ 0.
+- A pessoa define metas para os valores brutos da oferta por km, hora e minuto.
+- Pegar: lucro estimado positivo e pelo menos duas metas brutas atingidas; não pegar: menos de duas metas atingidas ou lucro estimado ≤ 0.
 
-Os indicadores por km, hora e minuto são valores diferentes e não se somam. O lucro estimado desconta combustível e custos mensais informados, rateados pelos km previstos no mês. Custos não cadastrados — como manutenção, pneus, depreciação ou impostos — não entram no cálculo; o resultado é uma estimativa, não lucro contábil garantido.
+Os indicadores brutos por km, hora e minuto são valores diferentes e não se somam. O lucro estimado da corrida desconta combustível e custos mensais informados, rateados pelos km previstos no mês. Custos não cadastrados — como manutenção, pneus, depreciação ou impostos — não entram no cálculo; o resultado é uma estimativa, não lucro contábil garantido.
 
 ## Instalação e ativação
 

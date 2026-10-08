@@ -288,15 +288,15 @@ class MainActivity : Activity() {
         content.addView(inputs)
         content.addView(space(9))
 
-        var profitTargetPerKm = 0.0
+        var idealOfferPerKm = 0.0
         val resultCard = card().apply { visibility = View.GONE }
         val result = label("", 15, pale)
         resultCard.addView(label("SEU RESULTADO", 13, accent, true))
         resultCard.addView(result)
         content.addView(resultCard)
         val applyButton = actionButton("Usar resultado nas metas por km") {
-            prefs.edit().putFloat(Prefs.MIN_KM, profitTargetPerKm.toFloat()).apply()
-            Toast.makeText(this, "Meta de lucro por km atualizada", Toast.LENGTH_SHORT).show()
+            prefs.edit().putFloat(Prefs.MIN_KM, idealOfferPerKm.toFloat()).apply()
+            Toast.makeText(this, "Meta bruta da oferta por km atualizada", Toast.LENGTH_SHORT).show()
         }.apply { visibility = View.GONE }
         content.addView(applyButton)
         content.addView(space(8))
@@ -323,8 +323,8 @@ class MainActivity : Activity() {
             val fuelPerKm = fuelNumber / consumptionNumber
             val monthlyCostPerKm = if (fixedNumber + otherMonthlyNumber > 0.0) (fixedNumber + otherMonthlyNumber) / monthlyKmNumber else 0.0
             val breakEvenPerKm = fuelPerKm + monthlyCostPerKm
-            profitTargetPerKm = desiredNumber
             val idealGrossPerKm = breakEvenPerKm + desiredNumber
+            idealOfferPerKm = idealGrossPerKm
             prefs.edit()
                 .putFloat(Prefs.GAS, fuelNumber.toFloat())
                 .putFloat(Prefs.CONSUMO, consumptionNumber.toFloat())
@@ -334,7 +334,7 @@ class MainActivity : Activity() {
                 .putFloat(Prefs.CALC_GOAL_PER_KM, desiredNumber.toFloat())
                 .apply()
             result.text = "Combustível: ${fuelPerKm.money()}/km\nCustos mensais rateados: ${monthlyCostPerKm.money()}/km\nPonto de equilíbrio: ${breakEvenPerKm.money()}/km\nOferta ideal: ${idealGrossPerKm.money()}/km para sobrar ${desiredNumber.money()}/km de lucro estimado."
-            applyButton.text = "Usar ${profitTargetPerKm.money()}/km como meta de lucro"
+            applyButton.text = "Usar ${idealOfferPerKm.money()}/km como meta bruta da oferta"
             resultCard.visibility = View.VISIBLE
             applyButton.visibility = View.VISIBLE
         })
@@ -361,10 +361,10 @@ class MainActivity : Activity() {
 
         val thresholdCard = card()
         thresholdCard.addView(label("METAS DE RECOMENDAÇÃO", 14, accent, true))
-        targetKm = editField(thresholdCard, "Lucro estimado mínimo por km (R$/km)", Prefs.MIN_KM, 2.0)
-        targetHour = editField(thresholdCard, "Lucro estimado mínimo por hora (R$/h)", Prefs.BOA_HORA, 35.0)
-        targetMinute = editField(thresholdCard, "Lucro estimado mínimo por minuto (R$/min)", Prefs.MIN_MINUTO, 0.58)
-        thresholdCard.addView(label("As metas são comparadas ao lucro estimado depois dos custos cadastrados. Boa: atinge as três; média: parte; ruim: nenhuma ou prejuízo.", 12, secondary))
+        targetKm = editField(thresholdCard, "Valor bruto mínimo da oferta por km (R$/km)", Prefs.MIN_KM, 2.0)
+        targetHour = editField(thresholdCard, "Valor bruto mínimo da oferta por hora (R$/h)", Prefs.BOA_HORA, 35.0)
+        targetMinute = editField(thresholdCard, "Valor bruto mínimo da oferta por minuto (R$/min)", Prefs.MIN_MINUTO, 0.58)
+        thresholdCard.addView(label("Verde = PEGAR: lucro positivo e atinge pelo menos 2 metas brutas. Vermelho = NÃO PEGAR: não atinge 2 metas ou o lucro não é positivo.", 12, secondary))
         content.addView(thresholdCard)
         content.addView(space(9))
         content.addView(actionButton("Salvar configurações") {
@@ -437,9 +437,9 @@ class MainActivity : Activity() {
             else -> secondary
         }
         val title = when (r.status) {
-            OverlayManager.GOOD -> "CORRIDA BOA — ACEITAR"
-            OverlayManager.MAYBE -> "MÉDIA — AVALIAR"
-            OverlayManager.BAD -> "CORRIDA RUIM — NÃO ACEITAR"
+            OverlayManager.GOOD -> "PEGAR CORRIDA"
+            OverlayManager.MAYBE -> "AVALIAR CORRIDA"
+            OverlayManager.BAD -> "NÃO PEGAR CORRIDA"
             else -> "LEITURA INCOMPLETA"
         }
         val card = card()
@@ -449,7 +449,7 @@ class MainActivity : Activity() {
         card.addView(label("Origem: ${r.pickup.ifBlank { "não identificada" }}", 12, secondary))
         card.addView(label("Destino: ${r.dropoff.ifBlank { "não identificado" }}", 12, secondary))
         card.addView(label("Gasolina: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}  •  Total: ${(r.fuelCost + r.monthlyCost).money()}", 12, pale))
-        card.addView(label("Lucro estimado: ${r.net.money()}  •  ${r.netKm.money()}/km  •  ${r.netHour.money()}/h  •  ${r.netMinute.money()}/min", 13, secondary))
+        card.addView(label("Oferta bruta: ${r.grossKm.money()}/km  •  ${r.grossHour.money()}/h  •  ${r.grossMinute.money()}/min", 14, secondary))
         return card
     }
 

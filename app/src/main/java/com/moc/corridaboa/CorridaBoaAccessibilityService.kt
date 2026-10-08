@@ -295,14 +295,11 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val profitHour = profit / (tempoTotal / 60.0)
         val profitMinute = profit / tempoTotal
         val profitKm = profit / totalKm
-        val meetsKm = profitKm >= targetPerKm
-        val meetsHour = profitHour >= targetPerHour
-        val meetsMinute = profitMinute >= targetPerMinute
-        val status = when {
-            profit <= 0.0 || (!meetsKm && !meetsHour && !meetsMinute) -> OverlayManager.BAD
-            meetsKm && meetsHour && meetsMinute -> OverlayManager.GOOD
-            else -> OverlayManager.MAYBE
-        }
+        val meetsKm = grossKm >= targetPerKm
+        val meetsHour = grossHour >= targetPerHour
+        val meetsMinute = grossMinute >= targetPerMinute
+        val metTargets = listOf(meetsKm, meetsHour, meetsMinute).count { it }
+        val status = if (profit > 0.0 && metTargets >= 2) OverlayManager.GOOD else OverlayManager.BAD
         val signature = listOf(pkg, fare, kmBusca, kmViagem, tempoTotal, pickup, dropoff).joinToString("|")
         val now = System.currentTimeMillis()
         val duplicate = signature == lastSignature && now - lastAnnouncedAt < 180_000
@@ -318,8 +315,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
         OverlayManager.showOfferResult(
             this, fare.money(), fuelCost.money(), monthlyCost.money(), totalCosts.money(), profit.money(),
-            totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(),
-            profitKm.money(), profitHour.money(), profitMinute.money(), status
+            totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(), grossHour.money(), grossMinute.money(), status
         )
     }
 

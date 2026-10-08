@@ -172,13 +172,13 @@ internal object OverlayManager {
         totalKm: String,
         totalMinutes: String,
         grossPerKm: String,
-        perKm: String,
-        perHour: String,
-        perMinute: String,
+        grossPerHour: String,
+        grossPerMinute: String,
         status: Int
     ) {
         handler.post {
             val accent = statusColor(status)
+            val decision = when (status) { GOOD -> "PEGAR CORRIDA"; MAYBE -> "AVALIAR CORRIDA"; BAD -> "NÃO PEGAR CORRIDA"; else -> "OFERTA" }
             val card = baseResultCard(service, accent)
             val header = LinearLayout(service).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -186,10 +186,15 @@ internal object OverlayManager {
             }
             val amountGroup = LinearLayout(service).apply { orientation = LinearLayout.VERTICAL }
             amountGroup.addView(TextView(service).apply {
-                val category = when (status) { GOOD -> "BOA"; MAYBE -> "MÉDIA"; BAD -> "RUIM"; else -> "OFERTA" }
-                text = "$category  •  LUCRO ESTIMADO"
+                text = decision
                 textSize = 14f
                 setTextColor(accent)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            amountGroup.addView(TextView(service).apply {
+                text = "LUCRO ESTIMADO"
+                textSize = 12f
+                setTextColor(Color.rgb(220, 228, 243))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
             amountGroup.addView(TextView(service).apply {
@@ -210,20 +215,20 @@ internal object OverlayManager {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 gravity = Gravity.END
             })
-            routeGroup.addView(TextView(service).apply {
-                text = "BRUTO/KM  $grossPerKm"
-                textSize = 12f
-                setTextColor(Color.rgb(185, 197, 219))
-                gravity = Gravity.END
-            })
             header.addView(routeGroup, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             card.addView(header)
             card.addView(TextView(service).apply {
-                text = "Oferta $offerAmount − custos cadastrados $totalCostsAmount = lucro estimado $profitAmount"
-                textSize = 13f
+                text = "$offerAmount − $totalCostsAmount = $profitAmount"
+                textSize = 16f
                 setTextColor(Color.WHITE)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setPadding(0, dp(service, 5), 0, 0)
+                gravity = Gravity.CENTER
+            })
+            card.addView(TextView(service).apply {
+                text = "Oferta − custos cadastrados = lucro estimado"
+                textSize = 11f
+                setTextColor(Color.rgb(220, 228, 243))
                 gravity = Gravity.CENTER
             })
             card.addView(TextView(service).apply {
@@ -240,7 +245,12 @@ internal object OverlayManager {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(service, 8), 0, 0)
             }
-            listOf("LUCRO/KM" to perKm, "LUCRO/HORA" to perHour, "LUCRO/MIN" to perMinute).forEach { (label, value) ->
+            listOf(
+                "OFERTA/KM" to grossPerKm,
+                "OFERTA/HORA" to grossPerHour,
+                "OFERTA/MIN" to grossPerMinute
+            ).forEach { (label, value) ->
+                val metricColor = accent
                 val cell = LinearLayout(service).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
@@ -248,21 +258,21 @@ internal object OverlayManager {
                 cell.addView(TextView(service).apply {
                     text = label
                     textSize = 13f
-                    setTextColor(Color.rgb(220, 228, 243))
+                    setTextColor(metricColor)
                     gravity = Gravity.CENTER
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                 })
                 cell.addView(TextView(service).apply {
                     text = value
                     textSize = 20f
-                    setTextColor(Color.WHITE)
+                    setTextColor(metricColor)
                     gravity = Gravity.CENTER
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                 })
                 metrics.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             card.addView(metrics)
-            card.contentDescription = "Oferta $offerAmount menos custos cadastrados $totalCostsAmount igual lucro estimado $profitAmount; gasolina $fuelCostAmount e custos mensais rateados $monthlyCostAmount; bruto $grossPerKm por km; lucro por km $perKm, por hora $perHour e por minuto $perMinute"
+            card.contentDescription = "$decision. Oferta $offerAmount, custos $totalCostsAmount, lucro estimado $profitAmount; valores brutos $grossPerKm por km, $grossPerHour por hora e $grossPerMinute por minuto"
             attachResult(service, card)
         }
     }

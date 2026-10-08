@@ -41,9 +41,9 @@ class HistoryActivity : Activity() {
 
     private fun recordCard(r: RideRecord): TextView {
         val status = when (r.status) {
-            OverlayManager.GOOD -> "BOA — ACEITAR"
-            OverlayManager.MAYBE -> "MÉDIA — AVALIAR"
-            OverlayManager.BAD -> "RUIM — NÃO ACEITAR"
+            OverlayManager.GOOD -> "PEGAR CORRIDA"
+            OverlayManager.MAYBE -> "AVALIAR CORRIDA"
+            OverlayManager.BAD -> "NÃO PEGAR CORRIDA"
             else -> "LEITURA INCOMPLETA"
         }
         val color = when (r.status) {
@@ -62,8 +62,7 @@ Oferta: ${r.fare.money()}  •  Buscar: ${r.pickupKm.oneDecimal()} km  •  Viag
 Total: ${(r.pickupKm + r.tripKm).oneDecimal()} km  •  ${r.minutes.oneDecimal()} min
 Gasolina: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}
 Lucro estimado: ${r.net.money()}
-Bruto: ${r.grossHour.money()}/h  •  ${r.grossKm.money()}/km  •  ${r.grossMinute.money()}/min
-Lucro: ${r.netHour.money()}/h  •  ${r.netKm.money()}/km  •  ${r.netMinute.money()}/min"""
+Valores brutos da oferta: ${r.grossKm.money()}/km  •  ${r.grossHour.money()}/h  •  ${r.grossMinute.money()}/min"""
         return TextView(this).apply {
             text = summary
             textSize = 14f
