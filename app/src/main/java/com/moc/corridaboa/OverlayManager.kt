@@ -7,6 +7,9 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.RelativeSizeSpan
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewConfiguration
@@ -24,10 +27,13 @@ internal object OverlayManager {
 
     private const val POS_X = "bubble_position_x"
     private const val POS_Y = "bubble_position_y"
-    private const val RESULT_VISIBLE_MS = 5_000L
+    private const val RESULT_VISIBLE_MS = 12_000L
     private var windowManager: WindowManager? = null
     private var bubbleView: TextView? = null
     private var resultView: LinearLayout? = null
+    private var bubbleStatus: Int? = null
+    private var bubbleDuration = ""
+    private var continuousOcrActive = false
     private val handler = Handler(Looper.getMainLooper())
     private val removeResultTask = Runnable { removeResult() }
 
@@ -116,24 +122,46 @@ internal object OverlayManager {
                 wm.addView(bubble, params)
                 windowManager = wm
                 bubbleView = bubble
+                renderBubble(service)
             } catch (_: Exception) {
                 bubbleView = null
             }
         }
     }
 
-    fun setOcrMode(active: Boolean) {
+    fun setOcrMode(service: AccessibilityService, active: Boolean) {
         handler.post {
-            bubbleView?.apply {
-                background = GradientDrawable(
-                    GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(Color.rgb(21, 232, 167), Color.rgb(0, 155, 117))
-                ).apply {
-                    shape = GradientDrawable.OVAL
-                    setStroke(3, if (active) Color.rgb(255, 204, 78) else Color.argb(220, 231, 255, 247))
-                }
-                contentDescription = if (active) "RotaLume: OCR contínuo ligado; segure para desligar, arraste para mover" else "RotaLume: toque para ler a tela, segure para OCR contínuo, arraste para mover"
+            continuousOcrActive = active
+            renderBubble(service)
+        }
+    }
+
+    private fun renderBubble(service: AccessibilityService) {
+        val bubble = bubbleView ?: return
+        val colors = when (bubbleStatus) {
+            GOOD -> intArrayOf(Color.rgb(21, 232, 167), Color.rgb(0, 155, 117))
+            MAYBE -> intArrayOf(Color.rgb(255, 213, 89), Color.rgb(213, 139, 15))
+            BAD -> intArrayOf(Color.rgb(255, 89, 99), Color.rgb(178, 25, 42))
+            else -> intArrayOf(Color.rgb(21, 232, 167), Color.rgb(0, 155, 117))
+        }
+        bubble.background = GradientDrawable(GradientDrawable.Orientation.TL_BR, colors).apply {
+            shape = GradientDrawable.OVAL
+            setStroke(dp(service, 2), if (continuousOcrActive) Color.rgb(255, 204, 78) else Color.argb(220, 231, 255, 247))
+        }
+        bubble.textSize = if (bubbleDuration.isBlank()) 18f else 16f
+        bubble.text = if (bubbleDuration.isBlank()) "R\$" else SpannableString("R\$\n${bubbleDuration}m").apply {
+            setSpan(RelativeSizeSpan(0.62f), 3, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        bubble.contentDescription = buildString {
+            append("RotaLume")
+            if (bubbleDuration.isNotBlank()) append(": última oferta, duração estimada $bubbleDuration minutos")
+            when (bubbleStatus) {
+                GOOD -> append(". Recomendação pegar corrida")
+                MAYBE -> append(". Recomendação avaliar corrida")
+                BAD -> append(". Recomendação não pegar corrida")
             }
+            if (continuousOcrActive) append(". OCR contínuo ligado; segure para desligar")
+            else append(". Toque para ler, segure para OCR contínuo, arraste para mover")
         }
     }
 
@@ -180,6 +208,9 @@ internal object OverlayManager {
         status: Int
     ) {
         handler.post {
+            bubbleStatus = status
+            bubbleDuration = totalMinutes.removeSuffix(",0").removeSuffix(".0")
+            renderBubble(service)
             val accent = statusColor(status)
             val decision = when (status) { GOOD -> "PEGAR CORRIDA"; MAYBE -> "AVALIAR CORRIDA"; BAD -> "NÃO PEGAR CORRIDA"; else -> "OFERTA" }
             val card = baseResultCard(service, accent)
@@ -335,6 +366,9 @@ internal object OverlayManager {
             try { bubbleView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
             bubbleView = null
             windowManager = null
+            bubbleStatus = null
+            bubbleDuration = ""
+            continuousOcrActive = false
         }
     }
 

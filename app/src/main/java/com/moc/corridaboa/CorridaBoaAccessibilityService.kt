@@ -42,7 +42,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             val activePackage = root?.packageName?.toString()
             if (activePackage != null && activePackage in supportedPackages) {
                 val screenText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-                captureVisibleScreen(manual = false, sourcePackage = activePackage, baseText = screenText)
+                if (extractOfferContext(screenText) != null) analyzeScreen(activePackage, screenText, manual = false)
+                else captureVisibleScreen(manual = false, sourcePackage = activePackage, baseText = screenText)
             }
             handler.postDelayed(this, 1_400)
         }
@@ -59,7 +60,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         if (monitoringEnabled() && Settings.canDrawOverlays(this)) {
             OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
             val continuous = settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
-            OverlayManager.setOcrMode(continuous)
+            OverlayManager.setOcrMode(this, continuous)
             if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) handler.post(continuousOcrLoop)
         } else {
             lastSignature = ""
@@ -111,7 +112,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val text = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         lastRidePackage = pkg
         lastRideScreenText = text
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (hasEssentialText(text)) {
+            analyzeScreen(pkg, text, manual = true)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             captureVisibleScreen(manual = true, sourcePackage = pkg, baseText = text)
         } else if (text.isNotBlank()) {
             analyzeScreen(pkg, text, manual = true)
@@ -127,7 +130,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
         val enabled = !settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
         settings.edit().putBoolean(Prefs.OCR_CONTINUOUS, enabled).apply()
-        OverlayManager.setOcrMode(enabled)
+        OverlayManager.setOcrMode(this, enabled)
         if (enabled) {
             handler.removeCallbacks(continuousOcrLoop)
             handler.post(continuousOcrLoop)
@@ -215,13 +218,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         OverlayManager.show(this, message, status)
     }
 
-    private fun hasEssentialText(text: String): Boolean {
-        if (!PRICE.containsMatchIn(text) || !OFFER_ACTION.containsMatchIn(text)) return false
-        val routes = ROUTE_HEADER.findAll(text).count()
-        val distances = KM.findAll(text).count()
-        val minutes = MINUTES.findAll(text).count()
-        return routes >= 2 || (distances >= 2 && minutes >= 2)
-    }
+    private fun hasEssentialText(text: String): Boolean = extractOfferContext(text) != null
 
     private fun extractOfferContext(text: String): OfferContext? {
         val prices = PRICE.findAll(text).filterNot { match ->
@@ -278,17 +275,12 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
         val fullText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         if (!OFFER_ACTION.containsMatchIn(fullText)) {
-            if (manual) {
-                showScanMessage("Não identifiquei uma oferta ativa nesta tela; não vou calcular usando a navegação do mapa.", OverlayManager.WARNING)
-            } else {
-                OverlayManager.hideResult()
-            }
+            if (manual) showScanMessage("Não identifiquei uma oferta ativa nesta tela; não vou calcular usando a navegação do mapa.", OverlayManager.WARNING)
             return
         }
         val offerContext = extractOfferContext(fullText)
         if (offerContext == null) {
             if (manual) showScanMessage("Não consegui separar os dados da oferta nova do trajeto que já está em andamento. Deixe a oferta visível e tente de novo.", OverlayManager.WARNING)
-            else OverlayManager.hideResult()
             return
         }
         val screenText = offerContext.text
