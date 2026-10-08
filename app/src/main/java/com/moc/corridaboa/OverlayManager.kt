@@ -167,6 +167,7 @@ internal object OverlayManager {
         netAmount: String,
         totalKm: String,
         totalMinutes: String,
+        grossPerKm: String,
         perKm: String,
         perHour: String,
         perMinute: String,
@@ -182,7 +183,7 @@ internal object OverlayManager {
             val amountGroup = LinearLayout(service).apply { orientation = LinearLayout.VERTICAL }
             amountGroup.addView(TextView(service).apply {
                 val category = when (status) { GOOD -> "BOA"; MAYBE -> "MÉDIA"; BAD -> "RUIM"; else -> "OFERTA" }
-                text = "$category  •  SOBRA"
+                text = "$category  •  LÍQUIDO"
                 textSize = 10f
                 setTextColor(Color.rgb(185, 197, 219))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -194,13 +195,24 @@ internal object OverlayManager {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
             header.addView(amountGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            header.addView(TextView(service).apply {
+            val routeGroup = LinearLayout(service).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            }
+            routeGroup.addView(TextView(service).apply {
                 text = "$totalKm km  •  $totalMinutes min"
-                textSize = 13f
+                textSize = 12f
                 setTextColor(Color.rgb(241, 245, 255))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                gravity = Gravity.END
             })
+            routeGroup.addView(TextView(service).apply {
+                text = "BRUTO/KM  $grossPerKm"
+                textSize = 10f
+                setTextColor(Color.rgb(185, 197, 219))
+                gravity = Gravity.END
+            })
+            header.addView(routeGroup, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             card.addView(header)
 
             val metrics = LinearLayout(service).apply {
@@ -208,7 +220,7 @@ internal object OverlayManager {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(service, 8), 0, 0)
             }
-            listOf("R$/KM" to perKm, "R$/HORA" to perHour, "R$/MIN" to perMinute).forEach { (label, value) ->
+            listOf("LÍQUIDO/KM" to perKm, "LÍQUIDO/H" to perHour, "LÍQUIDO/MIN" to perMinute).forEach { (label, value) ->
                 val cell = LinearLayout(service).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
@@ -230,7 +242,7 @@ internal object OverlayManager {
                 metrics.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             card.addView(metrics)
-            card.contentDescription = "Sobra $netAmount; $totalKm km em $totalMinutes minutos; $perKm por km, $perHour por hora, $perMinute por minuto"
+            card.contentDescription = "Sobra $netAmount; bruto $grossPerKm por km; $totalKm km em $totalMinutes minutos; líquido $perKm por km, $perHour por hora e $perMinute por minuto"
             attachResult(service, card)
         }
     }
