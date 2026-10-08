@@ -228,7 +228,11 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
 
     private fun extractOfferContext(text: String): OfferContext? {
         val prices = PRICE.findAll(text).filterNot { match ->
-            UNIT_RATE_SUFFIX.containsMatchIn(text.substring((match.range.last + 1).coerceAtMost(text.length)))
+            val suffix = text.substring((match.range.last + 1).coerceAtMost(text.length))
+            val prefix = text.substring(0, match.range.first).takeLast(12).trimEnd()
+            val unitRate = UNIT_RATE_SUFFIX.containsMatchIn(suffix)
+            val includedBonus = prefix.endsWith("+") && INCLUDED_BONUS_SUFFIX.containsMatchIn(suffix)
+            unitRate || includedBonus
         }.toList()
         val distinctAmounts = prices.mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.distinct()
         if (distinctAmounts.size != 1) return null
@@ -432,13 +436,14 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             activeService?.applyMonitoringState()
         }
         private const val MAX_OFFER_CONTEXT = 1_200
-        private val OFFER_ACTION = Regex("""\b(selecionar|aceitar|aceite|aceito|confirmar|contraoferta|recusar|rejeitar)\b""", RegexOption.IGNORE_CASE)
+        private val OFFER_ACTION = Regex("""\b(aceitar|aceite|aceito|contraoferta|recusar|rejeitar)\b""", RegexOption.IGNORE_CASE)
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
         private val UNIT_RATE_SUFFIX = Regex("""^\s*(?:/\s*(?:km|h|hr|min|hora)\b|por\s+(?:km|hora|minuto)\b)""", RegexOption.IGNORE_CASE)
+        private val INCLUDED_BONUS_SUFFIX = Regex("""^\s*(?:inclu[ií]do|inclu[ií]da|b[oô]nus)\b""", RegexOption.IGNORE_CASE)
         private val KM = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?km""", RegexOption.IGNORE_CASE)
         private val MINUTES = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?min""", RegexOption.IGNORE_CASE)
-        private val ROUTE_HEADER = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)""", RegexOption.IGNORE_CASE)
-        private val ROUTE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)\s*(.*?)(?=[0-9]+(?:[.,][0-9]+)?\s*min\s*\(\s*[0-9]+(?:[.,][0-9]+)?\s*km\s*\)|$)""", RegexOption.IGNORE_CASE)
+        private val ROUTE_HEADER = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min(?:uto|utos|s)?\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)""", RegexOption.IGNORE_CASE)
+        private val ROUTE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min(?:uto|utos|s)?\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)\s*(.*?)(?=[0-9]+(?:[.,][0-9]+)?\s*min(?:uto|utos|s)?\s*\(\s*[0-9]+(?:[.,][0-9]+)?\s*km\s*\)|$)""", RegexOption.IGNORE_CASE)
     }
 }
 
