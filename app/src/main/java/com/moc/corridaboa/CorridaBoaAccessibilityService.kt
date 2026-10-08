@@ -3,6 +3,7 @@ package com.moc.corridaboa
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityService.ScreenshotResult
 import android.accessibilityservice.AccessibilityService.TakeScreenshotCallback
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
@@ -32,25 +33,46 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val history by lazy { RideHistory(this) }
+    private fun monitoringEnabled() = settings.getBoolean(Prefs.MONITORING_ENABLED, true)
     private val continuousOcrLoop = object : Runnable {
         override fun run() {
-            if (!settings.getBoolean(Prefs.OCR_CONTINUOUS, false)) return
-            captureVisibleScreen(manual = false, sourcePackage = "visual-scan", baseText = null)
+            if (!monitoringEnabled() || !settings.getBoolean(Prefs.OCR_CONTINUOUS, false)) return
+            val root = rootInActiveWindow
+            val activePackage = root?.packageName?.toString()
+            if (activePackage != null && activePackage in supportedPackages) {
+                val screenText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+                captureVisibleScreen(manual = false, sourcePackage = activePackage, baseText = screenText)
+            }
             handler.postDelayed(this, 1_400)
         }
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        val continuous = settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
-        if (Settings.canDrawOverlays(this)) {
-            OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
-            OverlayManager.setOcrMode(continuous)
-        }
-        if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) handler.post(continuousOcrLoop)
+        activeService = this
+        applyMonitoringState()
     }
 
+    private fun applyMonitoringState() {
+        handler.removeCallbacks(continuousOcrLoop)
+        if (monitoringEnabled() && Settings.canDrawOverlays(this)) {
+            OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
+            val continuous = settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
+            OverlayManager.setOcrMode(continuous)
+            if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) handler.post(continuousOcrLoop)
+        } else {
+            lastSignature = ""
+            lastAnnouncedAt = 0L
+            lastRidePackage = null
+            lastRideScreenText = null
+            OverlayManager.hide(this)
+        }
+    }
+
+    private fun activeDriverPackage(): String? = rootInActiveWindow?.packageName?.toString()?.takeIf { it in supportedPackages }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (!monitoringEnabled()) return
         val pkg = event?.packageName?.toString() ?: return
         if (pkg !in supportedPackages) {
             if (pkg != packageName) {
@@ -78,13 +100,22 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun rereadCurrentOffer() {
+        if (!monitoringEnabled()) return
+        val pkg = activeDriverPackage()
+        if (pkg == null) {
+            showScanMessage("Abra Uber Driver, 99 Motorista ou inDrive e deixe a oferta na tela.", OverlayManager.WARNING)
+            return
+        }
+        val root = rootInActiveWindow
+        val text = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+        lastRidePackage = pkg
+        lastRideScreenText = text
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            captureVisibleScreen(manual = true, sourcePackage = "visual-scan", baseText = null)
+            captureVisibleScreen(manual = true, sourcePackage = pkg, baseText = text)
+        } else if (text.isNotBlank()) {
+            analyzeScreen(pkg, text, manual = true)
         } else {
-            val pkg = lastRidePackage
-            val text = lastRideScreenText
-            if (pkg != null && text != null) analyzeScreen(pkg, text, manual = true)
-            else showScanMessage("A leitura visual precisa do Android 11 ou mais recente.", OverlayManager.WARNING)
+            showScanMessage("Não consegui ler os dados dessa oferta.", OverlayManager.WARNING)
         }
     }
 
@@ -107,6 +138,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun captureVisibleScreen(manual: Boolean, sourcePackage: String, baseText: String?) {
+        if (!monitoringEnabled() || sourcePackage !in supportedPackages) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             if (manual) {
                 val cached = lastRideScreenText
@@ -183,7 +215,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun hasEssentialText(text: String): Boolean {
-        if (!PRICE.containsMatchIn(text)) return false
+        if (!PRICE.containsMatchIn(text) || !OFFER_ACTION.containsMatchIn(text)) return false
         val routes = ROUTE.findAll(text).count()
         val distances = KM.findAll(text).count()
         val minutes = MINUTES.findAll(text).count()
@@ -191,7 +223,12 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
+        if (!monitoringEnabled() || pkg !in supportedPackages) return
         val screenText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+        if (!OFFER_ACTION.containsMatchIn(screenText)) {
+            if (manual) showScanMessage("Não identifiquei uma oferta ativa nesta tela.", OverlayManager.WARNING)
+            return
+        }
         val fare = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble()
         if (fare == null) {
             if (manual) showScanMessage("Não encontrei um preço de corrida nesta tela.", OverlayManager.WARNING)
@@ -203,6 +240,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val allMinutes = MINUTES.findAll(screenText).mapNotNull { it.groupValues.getOrNull(1)?.toBrazilianDouble() }.toList()
         val completeRoute = routeParts.size >= 2 || (allDistances.size >= 2 && allMinutes.size >= 2)
         if (!completeRoute) {
+            if (allDistances.isEmpty() || allMinutes.isEmpty()) {
+                if (manual) showScanMessage("Oferta encontrada, mas faltam distância e tempo para calcular.", OverlayManager.WARNING)
+                return
+            }
             val partial = buildString {
                 append("OFERTA DETECTADA — LEITURA PARCIAL\nValor mostrado: ${fare.money()}\n")
                 if (allDistances.isNotEmpty()) append("Quilômetros lidos: ${allDistances.take(2).sum().oneDecimal()} km\n")
@@ -300,10 +341,19 @@ Metas atingidas: km ${if (meetsKm) "sim" else "não"} • hora ${if (meetsHour) 
         handler.removeCallbacks(continuousOcrLoop)
         textRecognizer.close()
         OverlayManager.hide(this)
+        if (activeService === this) activeService = null
         super.onDestroy()
     }
 
     companion object {
+        private var activeService: CorridaBoaAccessibilityService? = null
+
+        fun setMonitoringFromActivity(context: Context, enabled: Boolean) {
+            context.getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE).edit()
+                .putBoolean(Prefs.MONITORING_ENABLED, enabled).apply()
+            activeService?.applyMonitoringState()
+        }
+        private val OFFER_ACTION = Regex("""\b(selecionar|aceitar|aceite|confirmar|contraoferta)\b""", RegexOption.IGNORE_CASE)
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
         private val KM = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?km""", RegexOption.IGNORE_CASE)
         private val MINUTES = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?min""", RegexOption.IGNORE_CASE)

@@ -165,11 +165,23 @@ class MainActivity : Activity() {
         serviceCard.addView(space(5))
         val accessOn = isServiceEnabled()
         val overlayOn = Settings.canDrawOverlays(this)
-        val statusText = if (accessOn && overlayOn) "ATIVO — pronto para ler ofertas" else "PRECISA DE PERMISSÃO"
-        serviceCard.addView(label(statusText, 14, if (accessOn && overlayOn) lime else Color.rgb(255, 205, 92), true))
+        val monitorOn = prefs.getBoolean(Prefs.MONITORING_ENABLED, true)
+        val statusText = when {
+            !monitorOn -> "MONITORAMENTO DESLIGADO"
+            accessOn && overlayOn -> "ATIVO — pronto para ler ofertas"
+            else -> "PRECISA DE PERMISSÃO"
+        }
+        serviceCard.addView(label(statusText, 14, if (monitorOn && accessOn && overlayOn) lime else Color.rgb(255, 205, 92), true))
         serviceCard.addView(space(7))
-        serviceCard.addView(label("Ative Acessibilidade e a janela flutuante. A bolinha R$ aparece sobre os apps e pode ser arrastada.", 13, secondary))
+        serviceCard.addView(label("A leitura automática só funciona dentro de uma oferta ativa do Uber, 99 ou inDrive.", 13, secondary))
         serviceCard.addView(space(8))
+        serviceCard.addView(actionButton(if (monitorOn) "Desligar monitoramento" else "Ligar monitoramento") {
+            val newValue = !prefs.getBoolean(Prefs.MONITORING_ENABLED, true)
+            CorridaBoaAccessibilityService.setMonitoringFromActivity(this, newValue)
+            Toast.makeText(this, if (newValue) "Monitoramento ligado" else "Monitoramento desligado", Toast.LENGTH_SHORT).show()
+            renderTab()
+        })
+        serviceCard.addView(space(7))
         serviceCard.addView(actionButton("Configurar permissões") { permissionDialog() })
         content.addView(serviceCard)
         content.addView(space(14))
@@ -462,5 +474,6 @@ internal object Prefs {
     const val BOA_HORA = "good_hour"
     const val MIN_KM = "good_km"
     const val MIN_MINUTO = "good_minute"
+    const val MONITORING_ENABLED = "monitoring_enabled"
     const val OCR_CONTINUOUS = "ocr_continuous"
 }
