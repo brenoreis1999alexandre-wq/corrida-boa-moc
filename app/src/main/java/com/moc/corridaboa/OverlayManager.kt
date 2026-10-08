@@ -174,6 +174,9 @@ internal object OverlayManager {
         grossPerKm: String,
         grossPerHour: String,
         grossPerMinute: String,
+        kmStatus: Int,
+        hourStatus: Int,
+        minuteStatus: Int,
         status: Int
     ) {
         handler.post {
@@ -246,11 +249,11 @@ internal object OverlayManager {
                 setPadding(0, dp(service, 8), 0, 0)
             }
             listOf(
-                "OFERTA/KM" to grossPerKm,
-                "OFERTA/HORA" to grossPerHour,
-                "OFERTA/MIN" to grossPerMinute
-            ).forEach { (label, value) ->
-                val metricColor = accent
+                Triple("BRUTO/KM", grossPerKm, kmStatus),
+                Triple("BRUTO/HORA", grossPerHour, hourStatus),
+                Triple("BRUTO/MIN", grossPerMinute, minuteStatus)
+            ).forEach { (label, value, metricStatus) ->
+                val metricColor = statusColor(metricStatus)
                 val cell = LinearLayout(service).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER

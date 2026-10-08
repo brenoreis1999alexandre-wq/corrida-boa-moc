@@ -285,6 +285,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val targetPerHour = settings.getFloat(Prefs.BOA_HORA, 35f).toDouble()
         val targetPerKm = settings.getFloat(Prefs.MIN_KM, 2f).toDouble()
         val targetPerMinute = settings.getFloat(Prefs.MIN_MINUTO, 0.58f).toDouble()
+        val floorPerKm = settings.getFloat(Prefs.FLOOR_KM, 1.50f).toDouble()
+        val floorPerHour = settings.getFloat(Prefs.FLOOR_HOUR, 31f).toDouble()
+        val floorPerMinute = settings.getFloat(Prefs.FLOOR_MINUTE, 0.49f).toDouble()
         val fuelCost = totalKm * gasPrice / consumption
         val monthlyCost = if (monthlyDistance > 0.0) totalKm * (monthlyFixed + monthlyOther) / monthlyDistance else 0.0
         val totalCosts = fuelCost + monthlyCost
@@ -295,11 +298,18 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val profitHour = profit / (tempoTotal / 60.0)
         val profitMinute = profit / tempoTotal
         val profitKm = profit / totalKm
-        val meetsKm = grossKm >= targetPerKm
-        val meetsHour = grossHour >= targetPerHour
-        val meetsMinute = grossMinute >= targetPerMinute
-        val metTargets = listOf(meetsKm, meetsHour, meetsMinute).count { it }
-        val status = if (profit > 0.0 && metTargets >= 2) OverlayManager.GOOD else OverlayManager.BAD
+        val kmStatus = when { grossKm >= targetPerKm -> OverlayManager.GOOD; grossKm >= floorPerKm -> OverlayManager.MAYBE; else -> OverlayManager.BAD }
+        val hourStatus = when { grossHour >= targetPerHour -> OverlayManager.GOOD; grossHour >= floorPerHour -> OverlayManager.MAYBE; else -> OverlayManager.BAD }
+        val minuteStatus = when { grossMinute >= targetPerMinute -> OverlayManager.GOOD; grossMinute >= floorPerMinute -> OverlayManager.MAYBE; else -> OverlayManager.BAD }
+        val statuses = listOf(kmStatus, hourStatus, minuteStatus)
+        val goodMetrics = statuses.count { it == OverlayManager.GOOD }
+        val acceptableMetrics = statuses.count { it != OverlayManager.BAD }
+        val status = when {
+            profit <= 0.0 -> OverlayManager.BAD
+            goodMetrics >= 2 && statuses.none { it == OverlayManager.BAD } -> OverlayManager.GOOD
+            acceptableMetrics >= 2 -> OverlayManager.MAYBE
+            else -> OverlayManager.BAD
+        }
         val signature = listOf(pkg, fare, kmBusca, kmViagem, tempoTotal, pickup, dropoff).joinToString("|")
         val now = System.currentTimeMillis()
         val duplicate = signature == lastSignature && now - lastAnnouncedAt < 180_000
@@ -315,7 +325,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
         OverlayManager.showOfferResult(
             this, fare.money(), fuelCost.money(), monthlyCost.money(), totalCosts.money(), profit.money(),
-            totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(), grossHour.money(), grossMinute.money(), status
+            totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(), grossHour.money(), grossMinute.money(),
+            kmStatus, hourStatus, minuteStatus, status
         )
     }
 

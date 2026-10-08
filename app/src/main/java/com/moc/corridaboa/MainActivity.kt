@@ -34,6 +34,9 @@ class MainActivity : Activity() {
     private lateinit var targetKm: EditText
     private lateinit var targetHour: EditText
     private lateinit var targetMinute: EditText
+    private lateinit var floorKm: EditText
+    private lateinit var floorHour: EditText
+    private lateinit var floorMinute: EditText
     private var accessStatusLabel: TextView? = null
     private var overlayStatusLabel: TextView? = null
     private var selectedTab = 0
@@ -295,8 +298,11 @@ class MainActivity : Activity() {
         resultCard.addView(result)
         content.addView(resultCard)
         val applyButton = actionButton("Usar resultado nas metas por km") {
-            prefs.edit().putFloat(Prefs.MIN_KM, idealOfferPerKm.toFloat()).apply()
-            Toast.makeText(this, "Meta bruta da oferta por km atualizada", Toast.LENGTH_SHORT).show()
+            prefs.edit()
+                .putFloat(Prefs.MIN_KM, idealOfferPerKm.toFloat())
+                .putFloat(Prefs.FLOOR_KM, (idealOfferPerKm * 0.75).toFloat())
+                .apply()
+            Toast.makeText(this, "Meta boa e piso amarelo do km atualizados", Toast.LENGTH_SHORT).show()
         }.apply { visibility = View.GONE }
         content.addView(applyButton)
         content.addView(space(8))
@@ -360,19 +366,42 @@ class MainActivity : Activity() {
         content.addView(space(10))
 
         val thresholdCard = card()
-        thresholdCard.addView(label("METAS DE RECOMENDAÇÃO", 14, accent, true))
-        targetKm = editField(thresholdCard, "Valor bruto mínimo da oferta por km (R$/km)", Prefs.MIN_KM, 2.0)
-        targetHour = editField(thresholdCard, "Valor bruto mínimo da oferta por hora (R$/h)", Prefs.BOA_HORA, 35.0)
-        targetMinute = editField(thresholdCard, "Valor bruto mínimo da oferta por minuto (R$/min)", Prefs.MIN_MINUTO, 0.58)
-        thresholdCard.addView(label("Verde = PEGAR: lucro positivo e atinge pelo menos 2 metas brutas. Vermelho = NÃO PEGAR: não atinge 2 metas ou o lucro não é positivo.", 12, secondary))
+        thresholdCard.addView(label("METAS DE CADA INDICADOR", 14, accent, true))
+        thresholdCard.addView(label("Cada valor tem sua própria cor: verde a partir da meta boa, amarelo entre o piso e a meta, vermelho abaixo do piso.", 12, secondary))
+        val goodKmValue = prefs.getFloat(Prefs.MIN_KM, 2f).coerceAtLeast(0f)
+        val goodHourValue = prefs.getFloat(Prefs.BOA_HORA, 35f).coerceAtLeast(0f)
+        val goodMinuteValue = prefs.getFloat(Prefs.MIN_MINUTO, 0.58f).coerceAtLeast(0f)
+        val floorKmValue = prefs.getFloat(Prefs.FLOOR_KM, minOf(1.50f, goodKmValue)).coerceIn(0f, goodKmValue)
+        val floorHourValue = prefs.getFloat(Prefs.FLOOR_HOUR, minOf(31f, goodHourValue)).coerceIn(0f, goodHourValue)
+        val floorMinuteValue = prefs.getFloat(Prefs.FLOOR_MINUTE, minOf(0.49f, goodMinuteValue)).coerceIn(0f, goodMinuteValue)
+        prefs.edit().putFloat(Prefs.FLOOR_KM, floorKmValue).putFloat(Prefs.FLOOR_HOUR, floorHourValue)
+            .putFloat(Prefs.FLOOR_MINUTE, floorMinuteValue).apply()
+        targetKm = editField(thresholdCard, "Km — bom/verde a partir de (R$/km)", Prefs.MIN_KM, 2.0)
+        floorKm = editField(thresholdCard, "Km — piso; abaixo fica vermelho (R$/km)", Prefs.FLOOR_KM, floorKmValue.toDouble())
+        targetHour = editField(thresholdCard, "Hora — bom/verde a partir de (R$/h)", Prefs.BOA_HORA, 35.0)
+        floorHour = editField(thresholdCard, "Hora — piso; abaixo fica vermelho (R$/h)", Prefs.FLOOR_HOUR, floorHourValue.toDouble())
+        targetMinute = editField(thresholdCard, "Minuto — bom/verde a partir de (R$/min)", Prefs.MIN_MINUTO, 0.58)
+        floorMinute = editField(thresholdCard, "Minuto — piso; abaixo fica vermelho (R$/min)", Prefs.FLOOR_MINUTE, floorMinuteValue.toDouble())
+        thresholdCard.addView(label("Recomendação geral: PEGAR com 2 ou 3 verdes e nenhum vermelho; AVALIAR se pelo menos 2 forem verdes/amarelos; NÃO PEGAR se menos de 2 forem aceitáveis ou o lucro não for positivo.", 12, secondary))
         content.addView(thresholdCard)
         content.addView(space(9))
         content.addView(actionButton("Salvar configurações") {
-            val pairs = listOf(gas to Prefs.GAS, consumo to Prefs.CONSUMO, targetKm to Prefs.MIN_KM,
-                targetHour to Prefs.BOA_HORA, targetMinute to Prefs.MIN_MINUTO)
+            val pairs = listOf(
+                gas to Prefs.GAS, consumo to Prefs.CONSUMO,
+                targetKm to Prefs.MIN_KM, floorKm to Prefs.FLOOR_KM,
+                targetHour to Prefs.BOA_HORA, floorHour to Prefs.FLOOR_HOUR,
+                targetMinute to Prefs.MIN_MINUTO, floorMinute to Prefs.FLOOR_MINUTE
+            )
             val values = pairs.map { parse(it.first.text.toString()) }
-            if (values.any { it == null } || (values[1] ?: 0.0) <= 0.0 || values.drop(2).any { (it ?: -1.0) < 0.0 }) {
-                Toast.makeText(this, "Confira os números; o consumo deve ser maior que zero e as metas não podem ser negativas.", Toast.LENGTH_LONG).show()
+            val goodKm = parse(targetKm.text.toString())
+            val minKm = parse(floorKm.text.toString())
+            val goodHour = parse(targetHour.text.toString())
+            val minHour = parse(floorHour.text.toString())
+            val goodMinute = parse(targetMinute.text.toString())
+            val minMinute = parse(floorMinute.text.toString())
+            if (values.any { it == null } || (values[1] ?: 0.0) <= 0.0 || values.drop(2).any { (it ?: -1.0) < 0.0 } ||
+                minKm!! > goodKm!! || minHour!! > goodHour!! || minMinute!! > goodMinute!!) {
+                Toast.makeText(this, "Confira os números: o consumo deve ser positivo e cada piso deve ser menor ou igual à meta boa.", Toast.LENGTH_LONG).show()
                 return@actionButton
             }
             prefs.edit().apply { pairs.forEachIndexed { index, pair -> putFloat(pair.second, values[index]!!.toFloat()) } }.apply()
@@ -557,7 +586,10 @@ internal object Prefs {
     const val MIN_HORA = "min_hour"
     const val BOA_HORA = "good_hour"
     const val MIN_KM = "good_km"
+    const val FLOOR_KM = "floor_km"
     const val MIN_MINUTO = "good_minute"
+    const val FLOOR_HOUR = "floor_hour"
+    const val FLOOR_MINUTE = "floor_minute"
     const val MONITORING_ENABLED = "monitoring_enabled"
     const val MONTHLY_FIXED = "monthly_fixed_cost"
     const val MONTHLY_OTHER = "monthly_other_costs"

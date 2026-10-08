@@ -7,7 +7,7 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
 - Botão no painel liga/desliga o monitoramento; ao desligar, a bolha some, e ao ligar, volta.
 - OCR automático só examina Uber Driver, 99 Motorista e inDrive; exige sinais de uma ação de oferta ativa e dados suficientes da rota, ignorando telas de navegação sem solicitação.
-- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 5 segundos: recomendação PEGAR CORRIDA ou NÃO PEGAR CORRIDA, lucro estimado após custos cadastrados e valores brutos da oferta por km, hora e minuto, em letras maiores e coloridos conforme a recomendação.
+- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 5 segundos: recomendação PEGAR, AVALIAR ou NÃO PEGAR, lucro estimado após custos cadastrados e valores brutos da oferta por km, hora e minuto, cada indicador colorido pela própria meta.
 - Toque na bolha para fazer OCR da tela atual; segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
 - A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.
@@ -18,10 +18,11 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Ajustes de gasolina, consumo e critérios; o custo por km de combustível é calculado a partir dos dados informados.
 - O app não toca em botões, aceita ou recusa corridas.
 
-## Critérios iniciais
+## Metas e cores dos indicadores
 
-- A pessoa define metas para os valores brutos da oferta por km, hora e minuto.
-- Pegar: lucro estimado positivo e pelo menos duas metas brutas atingidas; não pegar: menos de duas metas atingidas ou lucro estimado ≤ 0.
+- A pessoa define, para cada valor bruto da oferta por km, hora e minuto, uma meta boa (verde) e um piso mínimo aceitável.
+- Cada indicador fica verde ao alcançar a meta boa, amarelo entre o piso e a meta, e vermelho abaixo do piso. Padrões: R$ 2,00/R$ 1,50 por km; R$ 35/R$ 31 por hora; R$ 0,58/R$ 0,49 por minuto; todos podem ser ajustados.
+- PEGAR: lucro positivo, pelo menos dois indicadores verdes e nenhum vermelho. AVALIAR: lucro positivo e pelo menos dois indicadores verdes/amarelos. NÃO PEGAR: lucro não positivo ou menos de dois indicadores aceitáveis.
 
 Os indicadores brutos por km, hora e minuto são valores diferentes e não se somam. O lucro estimado da corrida desconta combustível e custos mensais informados, rateados pelos km previstos no mês. Custos não cadastrados — como manutenção, pneus, depreciação ou impostos — não entram no cálculo; o resultado é uma estimativa, não lucro contábil garantido.
 
