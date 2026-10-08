@@ -215,7 +215,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun hasEssentialText(text: String): Boolean {
-        if (!PRICE.containsMatchIn(text)) return false
+        if (!PRICE.containsMatchIn(text) || !OFFER_ACTION.containsMatchIn(text)) return false
         val routes = ROUTE.findAll(text).count()
         val distances = KM.findAll(text).count()
         val minutes = MINUTES.findAll(text).count()
@@ -225,6 +225,14 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
         val screenText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+        if (!OFFER_ACTION.containsMatchIn(screenText)) {
+            if (manual) {
+                showScanMessage("Não identifiquei uma oferta ativa nesta tela; não vou calcular usando a navegação do mapa.", OverlayManager.WARNING)
+            } else {
+                OverlayManager.hideResult()
+            }
+            return
+        }
         val fare = PRICE.find(screenText)?.groupValues?.getOrNull(1)?.toBrazilianDouble()
         if (fare == null) {
             if (manual) showScanMessage("Não encontrei um preço de corrida nesta tela.", OverlayManager.WARNING)
@@ -341,7 +349,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 .putBoolean(Prefs.MONITORING_ENABLED, enabled).apply()
             activeService?.applyMonitoringState()
         }
-        private val OFFER_ACTION = Regex("""\b(selecionar|aceitar|aceite|confirmar|contraoferta)\b""", RegexOption.IGNORE_CASE)
+        private val OFFER_ACTION = Regex("""\b(selecionar|aceitar|aceite|aceito|confirmar|contraoferta|recusar|rejeitar)\b""", RegexOption.IGNORE_CASE)
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
         private val KM = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?km""", RegexOption.IGNORE_CASE)
         private val MINUTES = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?min""", RegexOption.IGNORE_CASE)

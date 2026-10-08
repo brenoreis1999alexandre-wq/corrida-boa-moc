@@ -292,6 +292,10 @@ internal object OverlayManager {
         }
     }
 
+    fun hideResult() {
+        handler.post { removeResult() }
+    }
+
     fun hide(service: AccessibilityService) {
         handler.post {
             removeResult()
