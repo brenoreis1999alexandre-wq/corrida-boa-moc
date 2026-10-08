@@ -41,10 +41,12 @@ jobs:
           VERSION="$(sed -n 's/.*versionName = \"\([^\"]*\)\".*/\1/p' app/build.gradle.kts)"
           TAG="v$VERSION"
           APK="app/build/outputs/apk/debug/app-debug.apk"
+          ASSET="RotaLume-v$VERSION.apk"
+          cp "$APK" "$ASSET"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK#RotaLume-v$VERSION.apk" --clobber
+            gh release upload "$TAG" "$ASSET" --clobber
           else
-            gh release create "$TAG" "$APK#RotaLume-v$VERSION.apk" \
+            gh release create "$TAG" "$ASSET" \
               --title "RotaLume v$VERSION" \
               --notes "APK de teste compilado automaticamente pelo GitHub Actions." \
               --prerelease
