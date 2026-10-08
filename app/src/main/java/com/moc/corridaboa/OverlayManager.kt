@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -138,32 +139,15 @@ internal object OverlayManager {
 
     fun show(service: AccessibilityService, message: String, status: Int) {
         handler.post {
-            removeResult()
-            val wm = service.getSystemService(AccessibilityService.WINDOW_SERVICE) as WindowManager
-            val accent = when (status) {
-                GOOD -> Color.rgb(37, 225, 151)
-                MAYBE -> Color.rgb(255, 200, 72)
-                BAD -> Color.rgb(255, 105, 105)
-                else -> Color.rgb(117, 176, 255)
-            }
-            val background = GradientDrawable().apply {
-                setColor(Color.rgb(26, 35, 58))
-                cornerRadius = dp(service, 23).toFloat()
-                setStroke(dp(service, 2), accent)
-            }
-            val card = LinearLayout(service).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(service, 18), dp(service, 14), dp(service, 18), dp(service, 14))
-                this.background = background
-                elevation = dp(service, 12).toFloat()
-            }
+            val accent = statusColor(status)
+            val card = baseResultCard(service, accent)
             val lines = message.lines()
             val title = TextView(service).apply {
                 text = "ROTALUME  •  ${lines.firstOrNull().orEmpty()}"
-                textSize = 16f
+                textSize = 15f
                 setTextColor(accent)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setPadding(0, 0, 0, dp(service, 7))
+                setPadding(0, 0, 0, dp(service, 6))
             }
             val details = TextView(service).apply {
                 text = lines.drop(1).joinToString("\n").ifBlank { message }
@@ -174,28 +158,125 @@ internal object OverlayManager {
             }
             card.addView(title)
             card.addView(details)
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                val margin = dp(service, 12)
-                x = margin
-                y = dp(service, 68)
-                width = service.resources.displayMetrics.widthPixels - 2 * margin
+            attachResult(service, card)
+        }
+    }
+
+    fun showOfferResult(
+        service: AccessibilityService,
+        netAmount: String,
+        totalKm: String,
+        totalMinutes: String,
+        perKm: String,
+        perHour: String,
+        perMinute: String,
+        status: Int
+    ) {
+        handler.post {
+            val accent = statusColor(status)
+            val card = baseResultCard(service, accent)
+            val header = LinearLayout(service).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
             }
-            try {
-                wm.addView(card, params)
-                windowManager = wm
-                resultView = card
-                handler.removeCallbacks(removeResultTask)
-                handler.postDelayed(removeResultTask, RESULT_VISIBLE_MS)
-            } catch (_: Exception) {
-                removeResult()
+            val amountGroup = LinearLayout(service).apply { orientation = LinearLayout.VERTICAL }
+            amountGroup.addView(TextView(service).apply {
+                val category = when (status) { GOOD -> "BOA"; MAYBE -> "MÉDIA"; BAD -> "RUIM"; else -> "OFERTA" }
+                text = "$category  •  SOBRA"
+                textSize = 10f
+                setTextColor(Color.rgb(185, 197, 219))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            amountGroup.addView(TextView(service).apply {
+                text = netAmount
+                textSize = 25f
+                setTextColor(accent)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            header.addView(amountGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            header.addView(TextView(service).apply {
+                text = "$totalKm km  •  $totalMinutes min"
+                textSize = 13f
+                setTextColor(Color.rgb(241, 245, 255))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            })
+            card.addView(header)
+
+            val metrics = LinearLayout(service).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(0, dp(service, 8), 0, 0)
             }
+            listOf("R$/KM" to perKm, "R$/HORA" to perHour, "R$/MIN" to perMinute).forEach { (label, value) ->
+                val cell = LinearLayout(service).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                }
+                cell.addView(TextView(service).apply {
+                    text = label
+                    textSize = 10f
+                    setTextColor(Color.rgb(185, 197, 219))
+                    gravity = Gravity.CENTER
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                })
+                cell.addView(TextView(service).apply {
+                    text = value
+                    textSize = 16f
+                    setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                })
+                metrics.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            card.addView(metrics)
+            card.contentDescription = "Sobra $netAmount; $totalKm km em $totalMinutes minutos; $perKm por km, $perHour por hora, $perMinute por minuto"
+            attachResult(service, card)
+        }
+    }
+
+    private fun baseResultCard(service: AccessibilityService, accent: Int) = LinearLayout(service).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(service, 16), dp(service, 11), dp(service, 16), dp(service, 11))
+        background = GradientDrawable().apply {
+            setColor(Color.rgb(24, 31, 48))
+            cornerRadius = dp(service, 18).toFloat()
+            setStroke(dp(service, 2), accent)
+        }
+        elevation = dp(service, 12).toFloat()
+    }
+
+    private fun statusColor(status: Int) = when (status) {
+        GOOD -> Color.rgb(37, 225, 151)
+        MAYBE -> Color.rgb(255, 200, 72)
+        BAD -> Color.rgb(255, 105, 105)
+        else -> Color.rgb(117, 176, 255)
+    }
+
+    private fun attachResult(service: AccessibilityService, card: LinearLayout) {
+        removeResult()
+        val wm = service.getSystemService(AccessibilityService.WINDOW_SERVICE) as WindowManager
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            val margin = dp(service, 12)
+            x = margin
+            y = dp(service, 68)
+            width = service.resources.displayMetrics.widthPixels - 2 * margin
+        }
+        try {
+            wm.addView(card, params)
+            windowManager = wm
+            resultView = card
+            handler.removeCallbacks(removeResultTask)
+            handler.postDelayed(removeResultTask, RESULT_VISIBLE_MS)
+        } catch (_: Exception) {
+            removeResult()
         }
     }
 

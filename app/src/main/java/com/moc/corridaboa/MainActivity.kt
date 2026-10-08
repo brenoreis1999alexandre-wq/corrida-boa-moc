@@ -78,7 +78,8 @@ class MainActivity : Activity() {
         overlayStatusLabel = null
         val page = when (selectedTab) {
             1 -> historyPage()
-            2 -> settingsPage()
+            2 -> calculatorPage()
+            3 -> settingsPage()
             else -> dashboardPage()
         }
         pageHost.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -89,7 +90,7 @@ class MainActivity : Activity() {
         gravity = Gravity.CENTER
         setPadding(dp(7), dp(5), dp(7), dp(6))
         setBackgroundColor(Color.rgb(20, 29, 49))
-        val items = listOf("⌂" to "Painel", "▤" to "Histórico", "⚙" to "Ajustes")
+        val items = listOf("⌂" to "Painel", "▤" to "Histórico", "▣" to "Calculadora", "⚙" to "Ajustes")
         items.forEachIndexed { index, item ->
             val navItem = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -170,6 +171,12 @@ class MainActivity : Activity() {
         dailyCard.addView(label("Tempo das ofertas: ${minutes.oneDecimal()} min", 12, secondary))
         dailyCard.addView(label("Estimativa das ofertas analisadas; não confirma corridas realizadas.", 11, secondary))
         content.addView(dailyCard)
+        content.addView(space(10))
+        val calcCard = card()
+        calcCard.addView(label("CALCULADORA DE GANHOS", 14, accent, true))
+        calcCard.addView(label("Calcule um valor por km considerando combustível, custos mensais e sua meta.", 12, secondary))
+        calcCard.addView(actionButton("Abrir calculadora de ganhos") { selectedTab = 2; renderTab() })
+        content.addView(calcCard)
         content.addView(space(14))
 
         val serviceCard = card()
@@ -260,6 +267,75 @@ class MainActivity : Activity() {
         } else {
             filtered.forEach { content.addView(recordCard(it)); content.addView(space(8)) }
         }
+        return scroll(content)
+    }
+
+    private fun calculatorPage(): View {
+        val content = vertical()
+        content.addView(label("Calculadora de ganhos", 24, pale, true))
+        content.addView(label("Descubra quanto a oferta precisa render por km para cobrir seus custos e sua meta.", 13, secondary))
+        content.addView(space(10))
+
+        val inputs = card()
+        inputs.addView(label("DADOS DO SEU CARRO", 14, accent, true))
+        val consumption = editField(inputs, "Seu carro faz quantos km/L?", Prefs.CONSUMO, 12.0)
+        val fuel = editField(inputs, "Preço da gasolina na sua cidade (R$/L)", Prefs.GAS, 6.20)
+        val fixedCost = editField(inputs, "Aluguel ou financiamento mensal (R$; opcional)", Prefs.MONTHLY_FIXED, 0.0)
+        val monthlyDistance = editField(inputs, "Quantos km você roda no mês?", Prefs.MONTHLY_KM, 0.0)
+        val desiredNet = editField(inputs, "Quanto quer que sobre para você por km?", Prefs.CALC_GOAL_PER_KM, 2.0)
+        inputs.addView(label("Se informar aluguel/financiamento, preencha também os km rodados no mês para dividir esse custo.", 12, secondary))
+        content.addView(inputs)
+        content.addView(space(9))
+
+        var targetAfterFuelPerKm = 0.0
+        val resultCard = card().apply { visibility = View.GONE }
+        val result = label("", 15, pale)
+        resultCard.addView(label("SEU RESULTADO", 13, accent, true))
+        resultCard.addView(result)
+        content.addView(resultCard)
+        val applyButton = actionButton("Usar resultado nas metas por km") {
+            prefs.edit().putFloat(Prefs.MIN_KM, targetAfterFuelPerKm.toFloat()).apply()
+            Toast.makeText(this, "Meta líquida por km atualizada", Toast.LENGTH_SHORT).show()
+        }.apply { visibility = View.GONE }
+        content.addView(applyButton)
+        content.addView(space(8))
+        content.addView(actionButton("Calcular meu km ideal") {
+            val consumptionValue = parse(consumption.text.toString())
+            val fuelValue = parse(fuel.text.toString())
+            val fixedValue = parse(fixedCost.text.toString())
+            val monthlyKmValue = parse(monthlyDistance.text.toString())
+            val desiredValue = parse(desiredNet.text.toString())
+            if (listOf(consumptionValue, fuelValue, fixedValue, monthlyKmValue, desiredValue).any { it == null } ||
+                (consumptionValue ?: 0.0) <= 0.0 || (fuelValue ?: 0.0) <= 0.0 ||
+                (fixedValue ?: -1.0) < 0.0 || (monthlyKmValue ?: -1.0) < 0.0 || (desiredValue ?: -1.0) < 0.0 ||
+                ((fixedValue ?: 0.0) > 0.0 && (monthlyKmValue ?: 0.0) <= 0.0)) {
+                Toast.makeText(this, "Confira os valores e informe km/mês se houver aluguel ou financiamento.", Toast.LENGTH_LONG).show()
+                return@actionButton
+            }
+            val consumptionNumber = consumptionValue!!
+            val fuelNumber = fuelValue!!
+            val fixedNumber = fixedValue!!
+            val monthlyKmNumber = monthlyKmValue!!
+            val desiredNumber = desiredValue!!
+            val fuelPerKm = fuelNumber / consumptionNumber
+            val fixedPerKm = if (fixedNumber > 0.0) fixedNumber / monthlyKmNumber else 0.0
+            val breakEvenPerKm = fuelPerKm + fixedPerKm
+            targetAfterFuelPerKm = fixedPerKm + desiredNumber
+            val idealGrossPerKm = breakEvenPerKm + desiredNumber
+            prefs.edit()
+                .putFloat(Prefs.GAS, fuelNumber.toFloat())
+                .putFloat(Prefs.CONSUMO, consumptionNumber.toFloat())
+                .putFloat(Prefs.MONTHLY_FIXED, fixedNumber.toFloat())
+                .putFloat(Prefs.MONTHLY_KM, monthlyKmNumber.toFloat())
+                .putFloat(Prefs.CALC_GOAL_PER_KM, desiredNumber.toFloat())
+                .apply()
+            result.text = "Combustível: ${fuelPerKm.money()}/km\nCusto mensal dividido por km: ${fixedPerKm.money()}/km\nPonto de equilíbrio: ${breakEvenPerKm.money()}/km\nIdeal da oferta: ${idealGrossPerKm.money()}/km (inclui sua meta de ${desiredNumber.money()}/km)"
+            applyButton.text = "Usar ${targetAfterFuelPerKm.money()}/km como meta líquida nas recomendações"
+            resultCard.visibility = View.VISIBLE
+            applyButton.visibility = View.VISIBLE
+        })
+        content.addView(space(10))
+        content.addView(label("Estimativa com combustível e custo mensal informado. Não inclui manutenção, pneus, impostos ou depreciação.", 12, secondary))
         return scroll(content)
     }
 
@@ -479,5 +555,8 @@ internal object Prefs {
     const val MIN_KM = "good_km"
     const val MIN_MINUTO = "good_minute"
     const val MONITORING_ENABLED = "monitoring_enabled"
+    const val MONTHLY_FIXED = "monthly_fixed_cost"
+    const val MONTHLY_KM = "monthly_distance_km"
+    const val CALC_GOAL_PER_KM = "calculator_goal_per_km"
     const val OCR_CONTINUOUS = "ocr_continuous"
 }

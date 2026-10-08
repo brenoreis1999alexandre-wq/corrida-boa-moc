@@ -299,18 +299,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             )
             runCatching { history.save(record) }
         }
-        val title = when (status) {
-            OverlayManager.GOOD -> "CORRIDA BOA — ACEITAR"
-            OverlayManager.MAYBE -> "MÉDIA — AVALIAR"
-            else -> "CORRIDA RUIM — NÃO ACEITAR"
-        }
-        val details = """$title
-Oferta: ${fare.money()} • Combustível: -${fuelCost.money()}
-Sobra estimada: ${net.money()}
-Trajeto total: ${totalKm.oneDecimal()} km • ${tempoTotal.oneDecimal()} min
-Líquido: ${netKm.money()}/km • ${netHour.money()}/h • ${netMinute.money()}/min
-Metas atingidas: km ${if (meetsKm) "sim" else "não"} • hora ${if (meetsHour) "sim" else "não"} • min ${if (meetsMinute) "sim" else "não"}"""
-        OverlayManager.show(this, details, status)
+        OverlayManager.showOfferResult(
+            this, net.money(), totalKm.oneDecimal(), tempoTotal.oneDecimal(),
+            netKm.money(), netHour.money(), netMinute.money(), status
+        )
     }
 
     private fun shouldDisplay(signature: String): Boolean {

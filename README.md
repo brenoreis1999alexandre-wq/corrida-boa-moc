@@ -14,6 +14,7 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Classificação informativa e silenciosa: corrida boa, média ou ruim; cálculos de tarifa, distância, tempo e combustível aparecem na tela, sem fala por voz.
 - Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo.
 - Painel resume as ofertas analisadas. Os valores são estimativas de ofertas, não comprovantes de corridas realizadas.
+- Calculadora de ganhos: estima custo de combustível por km, parcela mensal de aluguel/financiamento por km e uma meta bruta ideal; o custo mensal é opcional e distribuído pelos km planejados para o mês.
 - Ajustes de gasolina, consumo e critérios; o custo por km de combustível é calculado a partir dos dados informados.
 - O app não toca em botões, aceita ou recusa corridas.
 
