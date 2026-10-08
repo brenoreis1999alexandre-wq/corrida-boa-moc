@@ -33,6 +33,7 @@ internal object OverlayManager {
     private var windowManager: WindowManager? = null
     private var bubbleView: TextView? = null
     private var resultView: LinearLayout? = null
+    private var closeView: TextView? = null
     private var bubbleStatus: Int? = null
     private var bubbleDuration = ""
     private var bubblePrice = ""
@@ -115,12 +116,7 @@ internal object OverlayManager {
                         } else if (System.currentTimeMillis() - downAt >= ViewConfiguration.getLongPressTimeout()) {
                             onLongPress()
                         } else if (bubblePriceVisible || resultView != null) {
-                            bubblePriceResetTask?.let { handler.removeCallbacks(it) }
-                            bubblePriceResetTask = null
-                            bubblePriceVisible = false
-                            bubblePrice = ""
-                            removeResult()
-                            renderBubble(service)
+                            dismissResult(service)
                         } else {
                             onTap()
                         }
@@ -158,7 +154,7 @@ internal object OverlayManager {
         }
         bubble.background = GradientDrawable(GradientDrawable.Orientation.TL_BR, colors).apply {
             shape = GradientDrawable.OVAL
-            setStroke(dp(service, 2), if (continuousOcrActive) Color.rgb(255, 204, 78) else Color.argb(220, 231, 255, 247))
+            setStroke(dp(service, 2), if (continuousOcrActive) Color.rgb(255, 204, 78) else Color.rgb(80, 255, 186))
         }
         val showingFare = bubblePriceVisible && bubblePrice.isNotBlank()
         bubble.textSize = if (showingFare || bubbleDuration.isNotBlank()) 16f else 18f
@@ -172,8 +168,8 @@ internal object OverlayManager {
             }
         }
         bubble.contentDescription = buildString {
-            append("RotaLume")
-            if (showingFare) append(": oferta $bubblePrice")
+            append("RotaLume: monitoramento ativo")
+            if (showingFare) append(". Oferta $bubblePrice")
             else if (bubbleDuration.isNotBlank()) append(": última oferta, duração estimada $bubbleDuration minutos")
             when (bubbleStatus) {
                 GOOD -> append(". Recomendação pegar corrida")
@@ -344,7 +340,7 @@ internal object OverlayManager {
 
     private fun baseResultCard(service: AccessibilityService, accent: Int) = LinearLayout(service).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(service, 16), dp(service, 11), dp(service, 16), dp(service, 11))
+        setPadding(dp(service, 16), dp(service, 11), dp(service, 52), dp(service, 11))
         background = GradientDrawable().apply {
             setColor(if (accent == Color.rgb(255, 45, 60)) Color.rgb(48, 22, 30) else Color.rgb(24, 31, 48))
             cornerRadius = dp(service, 18).toFloat()
@@ -380,6 +376,38 @@ internal object OverlayManager {
             wm.addView(card, params)
             windowManager = wm
             resultView = card
+            val close = TextView(service).apply {
+                text = "×"
+                textSize = 25f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                contentDescription = "Fechar resultado do RotaLume"
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.rgb(44, 54, 72))
+                    setStroke(dp(service, 1), Color.rgb(180, 194, 216))
+                }
+                elevation = dp(service, 8).toFloat()
+                setOnClickListener { dismissResult(service) }
+            }
+            val closeSize = dp(service, 44)
+            val closeParams = WindowManager.LayoutParams(
+                closeSize,
+                closeSize,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = service.resources.displayMetrics.widthPixels - dp(service, 12) - closeSize
+                y = dp(service, 72)
+            }
+            try {
+                wm.addView(close, closeParams)
+                closeView = close
+            } catch (_: Exception) {
+                // The result card is still useful if the optional close overlay cannot be added.
+            }
             handler.removeCallbacks(removeResultTask)
             handler.postDelayed(removeResultTask, RESULT_VISIBLE_MS)
         } catch (_: Exception) {
@@ -389,7 +417,7 @@ internal object OverlayManager {
 
     fun screenshotExclusionRects(): List<Rect> {
         val rects = mutableListOf<Rect>()
-        listOfNotNull(resultView, bubbleView).forEach { view ->
+        listOfNotNull(resultView, bubbleView, closeView).forEach { view ->
             if (view.isShown && view.width > 0 && view.height > 0) {
                 val location = IntArray(2)
                 view.getLocationOnScreen(location)
@@ -399,8 +427,29 @@ internal object OverlayManager {
         return rects
     }
 
-    fun hideResult() {
-        handler.post { removeResult() }
+    fun dismissResult(service: AccessibilityService) {
+        handler.post {
+            clearBubblePrice()
+            removeResult()
+            renderBubble(service)
+        }
+    }
+
+    fun prepareForIncomingOffer(service: AccessibilityService) {
+        handler.post {
+            clearBubblePrice()
+            bubbleStatus = null
+            bubbleDuration = ""
+            removeResult()
+            renderBubble(service)
+        }
+    }
+
+    private fun clearBubblePrice() {
+        bubblePriceResetTask?.let { handler.removeCallbacks(it) }
+        bubblePriceResetTask = null
+        bubblePrice = ""
+        bubblePriceVisible = false
     }
 
     fun hide(service: AccessibilityService) {
@@ -421,6 +470,8 @@ internal object OverlayManager {
 
     private fun removeResult() {
         handler.removeCallbacks(removeResultTask)
+        try { closeView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
+        closeView = null
         try { resultView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
         resultView = null
     }

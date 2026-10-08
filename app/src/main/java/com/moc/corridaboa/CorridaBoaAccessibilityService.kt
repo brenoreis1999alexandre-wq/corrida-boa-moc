@@ -22,8 +22,19 @@ import kotlin.math.max
 class CorridaBoaAccessibilityService : AccessibilityService() {
     private var lastSignature = ""
     private var lastAnnouncedAt = 0L
+    private var lastVisibleOfferFingerprint = ""
+    private var noOfferResetPending = false
+    private var screenGeneration = 0
     private var screenshotInFlight = false
+    private var pendingCapture: PendingCapture? = null
     private var lastOcrRequestAt = 0L
+    private data class PendingCapture(val manual: Boolean, val pkg: String)
+    private val resetOfferStateTask = Runnable {
+        lastSignature = ""
+        lastAnnouncedAt = 0L
+        lastVisibleOfferFingerprint = ""
+        noOfferResetPending = false
+    }
     private val handler = Handler(Looper.getMainLooper())
     private val textRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private val supportedPackages = setOf(
@@ -40,8 +51,13 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             val root = rootInActiveWindow
             val activePackage = root?.packageName?.toString()
             if (activePackage != null && activePackage in supportedPackages) {
-                // Read the visible offer card; don't reuse route text from the active trip.
-                captureVisibleScreen(manual = false, sourcePackage = activePackage)
+                val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+                val hint = extractOfferContextFromNode(root) ?: extractOfferContext(treeText)
+                if (hint != null) requestOfferRead(activePackage, hint)
+                else {
+                    if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
+                    captureVisibleScreen(manual = false, sourcePackage = activePackage)
+                }
             }
             handler.postDelayed(this, 1_400)
         }
@@ -61,8 +77,12 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             OverlayManager.setOcrMode(this, continuous)
             if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) handler.post(continuousOcrLoop)
         } else {
+            handler.removeCallbacks(resetOfferStateTask)
             lastSignature = ""
             lastAnnouncedAt = 0L
+            lastVisibleOfferFingerprint = ""
+            noOfferResetPending = false
+            screenGeneration++
             OverlayManager.hide(this)
         }
     }
@@ -80,13 +100,64 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
         }
         val root = rootInActiveWindow
+        val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+        val nodeOffer = extractOfferContextFromNode(root)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Prefer the visible offer card geometry when another ride is active.
-            captureVisibleScreen(manual = false, sourcePackage = pkg)
-        } else {
-            val exactOffer = extractOfferContextFromNode(root)
-            if (exactOffer != null) analyzeScreen(pkg, exactOffer.text, manual = false)
+            // Use accessibility only to spot a new card; OCR remains the source for values.
+            val offerHint = nodeOffer ?: extractOfferContext(treeText)
+            if (offerHint != null) requestOfferRead(pkg, offerHint)
+            else {
+                if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
+                captureVisibleScreen(manual = false, sourcePackage = pkg)
+            }
+        } else if (nodeOffer != null) {
+            noteOfferVisible(pkg, nodeOffer)
+            analyzeScreen(pkg, nodeOffer.text, manual = false)
+        } else if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) {
+            noteNoOfferVisible()
         }
+    }
+
+    private fun requestOfferRead(pkg: String, offer: OfferContext) {
+        if (noteOfferVisible(pkg, offer)) {
+            lastOcrRequestAt = 0L
+            val requestGeneration = screenGeneration
+            handler.postDelayed({
+                if (requestGeneration == screenGeneration) {
+                    captureVisibleScreen(manual = false, sourcePackage = pkg, force = true)
+                }
+            }, 120)
+        } else {
+            captureVisibleScreen(manual = false, sourcePackage = pkg)
+        }
+    }
+
+    private fun noteOfferVisible(pkg: String, offer: OfferContext): Boolean {
+        val returningAfterGap = noOfferResetPending
+        handler.removeCallbacks(resetOfferStateTask)
+        noOfferResetPending = false
+        val fingerprint = offerFingerprint(pkg, offer)
+        if (fingerprint == lastVisibleOfferFingerprint && !returningAfterGap) return false
+        // A transition to a different visible offer is a new presentation even if
+        // it happens to have identical fare/route data to one seen moments ago.
+        // Reset the result-level dedupe only on a genuine visible-offer transition.
+        if (fingerprint != lastVisibleOfferFingerprint || returningAfterGap) {
+            lastSignature = ""
+            lastAnnouncedAt = 0L
+        }
+        lastVisibleOfferFingerprint = fingerprint
+        screenGeneration++
+        OverlayManager.prepareForIncomingOffer(this)
+        return true
+    }
+
+    private fun noteNoOfferVisible() {
+        handler.removeCallbacks(resetOfferStateTask)
+        if (!noOfferResetPending) {
+            noOfferResetPending = true
+            screenGeneration++
+        }
+        handler.postDelayed(resetOfferStateTask, OFFER_ABSENCE_RESET_MS)
     }
 
     private fun rereadCurrentOffer() {
@@ -101,8 +172,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             captureVisibleScreen(manual = true, sourcePackage = pkg)
         } else {
             val exactOffer = extractOfferContextFromNode(root)
-            if (exactOffer != null) analyzeScreen(pkg, exactOffer.text, manual = true)
-            else showScanMessage("Não consegui separar esta oferta com segurança. Não calculei para não misturar com a corrida atual.", OverlayManager.WARNING)
+            if (exactOffer != null) {
+                noteOfferVisible(pkg, exactOffer)
+                analyzeScreen(pkg, exactOffer.text, manual = true)
+            } else showScanMessage("Não consegui separar esta oferta com segurança. Não calculei para não misturar com a corrida atual.", OverlayManager.WARNING)
         }
     }
 
@@ -124,16 +197,21 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun captureVisibleScreen(manual: Boolean, sourcePackage: String) {
+    private fun captureVisibleScreen(manual: Boolean, sourcePackage: String, force: Boolean = false) {
         if (!monitoringEnabled() || sourcePackage !in supportedPackages) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             if (manual) showScanMessage("Sem leitura visual neste Android, não consegui isolar a nova oferta com segurança.", OverlayManager.WARNING)
             return
         }
         val now = System.currentTimeMillis()
-        if (screenshotInFlight || (!manual && now - lastOcrRequestAt < 1_100)) return
+        if (screenshotInFlight) {
+            if (force || manual) pendingCapture = PendingCapture(manual, sourcePackage)
+            return
+        }
+        if (!manual && !force && now - lastOcrRequestAt < 1_100) return
         screenshotInFlight = true
         lastOcrRequestAt = now
+        val requestGeneration = screenGeneration
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
                 override fun onSuccess(screenshot: ScreenshotResult) {
@@ -143,7 +221,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     } catch (_: Exception) { null }
                     try { screenshot.hardwareBuffer.close() } catch (_: Exception) { }
                     if (bitmap == null) {
-                        screenshotInFlight = false
+                        finishScreenshot()
                         if (manual) screenshotFailed()
                         return
                     }
@@ -159,35 +237,48 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                                 .joinToString(" ") { it.text }
                                 .replace(Regex("""\s+"""), " ").trim()
                             bitmap.recycle()
-                            screenshotInFlight = false
-                            // Parse only OCR lines visible outside our own overlays. Do not
-                            // merge the flattened Accessibility tree back in: it can mix the
-                            // active trip route with the incoming offer card.
-                            val exactOffer = extractOfferContext(visibleText)
-                            if (exactOffer != null) {
-                                analyzeScreen(sourcePackage, exactOffer.text, manual)
-                            } else if (manual && visibleText.isNotBlank()) {
-                                analyzeScreen(sourcePackage, visibleText, manual = true)
-                            } else if (manual) {
-                                showScanMessage("Não encontrei texto legível nesta tela. Tente enquanto o preço estiver aparecendo.", OverlayManager.WARNING)
+                            if (requestGeneration == screenGeneration) {
+                                // Parse only OCR lines visible outside our own overlays. Do not
+                                // merge the flattened Accessibility tree back in: it can mix the
+                                // active trip route with the incoming offer card.
+                                val exactOffer = extractOfferContext(visibleText)
+                                if (exactOffer != null) {
+                                    noteOfferVisible(sourcePackage, exactOffer)
+                                    analyzeScreen(sourcePackage, exactOffer.text, manual)
+                                } else {
+                                    if (!OFFER_ACTION.containsMatchIn(visibleText) && !PRICE.containsMatchIn(visibleText)) noteNoOfferVisible()
+                                    if (manual && visibleText.isNotBlank()) {
+                                        analyzeScreen(sourcePackage, visibleText, manual = true)
+                                    } else if (manual) {
+                                        showScanMessage("Não encontrei texto legível nesta tela. Tente enquanto o preço estiver aparecendo.", OverlayManager.WARNING)
+                                    }
+                                }
                             }
+                            finishScreenshot()
                         }
                         .addOnFailureListener {
                             bitmap.recycle()
-                            screenshotInFlight = false
+                            finishScreenshot()
                             if (manual) screenshotFailed()
                         }
                 }
 
                 override fun onFailure(errorCode: Int) {
-                    screenshotInFlight = false
+                    finishScreenshot()
                     if (manual) screenshotFailed()
                 }
             })
         } catch (_: Exception) {
-            screenshotInFlight = false
+            finishScreenshot()
             if (manual) screenshotFailed()
         }
+    }
+
+    private fun finishScreenshot() {
+        screenshotInFlight = false
+        val pending = pendingCapture ?: return
+        pendingCapture = null
+        handler.post { captureVisibleScreen(pending.manual, pending.pkg, force = true) }
     }
 
     private fun screenshotFailed() {
@@ -277,6 +368,13 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         return contexts.values.singleOrNull()
     }
 
+    private fun offerFingerprint(pkg: String, offer: OfferContext): String {
+        val routes = ROUTE.findAll(offer.text).toList()
+        val pickup = routes.getOrNull(0)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
+        val dropoff = routes.getOrNull(1)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
+        return listOf(pkg, offer.fare, offer.distancesKm[0], offer.distancesKm[1], offer.durationsMin.sum(), pickup, dropoff).joinToString("|")
+    }
+
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
         val fullText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
@@ -337,7 +435,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             acceptableMetrics >= 2 -> OverlayManager.MAYBE
             else -> OverlayManager.BAD
         }
-        val signature = listOf(pkg, fare, kmBusca, kmViagem, tempoTotal, pickup, dropoff).joinToString("|")
+        val signature = offerFingerprint(pkg, offerContext)
         val now = System.currentTimeMillis()
         val duplicate = signature == lastSignature && now - lastAnnouncedAt < 180_000
         if (duplicate && !manual) return
@@ -396,7 +494,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             activeService?.applyMonitoringState()
         }
         private const val MAX_OFFER_CONTEXT = 1_200
-        private val OFFER_ACTION = Regex("""\b(aceitar|aceite|aceito|contraoferta|recusar|rejeitar)\b""", RegexOption.IGNORE_CASE)
+        private const val OFFER_ABSENCE_RESET_MS = 2_000L
+        private val OFFER_ACTION = Regex("""\b(aceitar|aceite|aceito|selecionar|selecione|contraoferta|recusar|rejeitar)\b""", RegexOption.IGNORE_CASE)
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
         private val UNIT_RATE_SUFFIX = Regex("""^\s*(?:/\s*(?:km|h|hr|min|hora)\b|por\s+(?:km|hora|minuto)\b)""", RegexOption.IGNORE_CASE)
         private val INCLUDED_BONUS_SUFFIX = Regex("""^\s*(?:inclu[ií]do|inclu[ií]da|b[oô]nus)\b""", RegexOption.IGNORE_CASE)
