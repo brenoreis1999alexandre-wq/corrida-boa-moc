@@ -22,8 +22,6 @@ import kotlin.math.max
 class CorridaBoaAccessibilityService : AccessibilityService() {
     private var lastSignature = ""
     private var lastAnnouncedAt = 0L
-    private var lastRidePackage: String? = null
-    private var lastRideScreenText: String? = null
     private var screenshotInFlight = false
     private var lastOcrRequestAt = 0L
     private val handler = Handler(Looper.getMainLooper())
@@ -42,10 +40,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             val root = rootInActiveWindow
             val activePackage = root?.packageName?.toString()
             if (activePackage != null && activePackage in supportedPackages) {
-                val screenText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-                val exactOffer = extractOfferContextFromNode(root)
-                if (exactOffer != null) analyzeScreen(activePackage, exactOffer.text, manual = false)
-                else captureVisibleScreen(manual = false, sourcePackage = activePackage, baseText = screenText)
+                // Read the visible offer card; don't reuse route text from the active trip.
+                captureVisibleScreen(manual = false, sourcePackage = activePackage)
             }
             handler.postDelayed(this, 1_400)
         }
@@ -67,8 +63,6 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         } else {
             lastSignature = ""
             lastAnnouncedAt = 0L
-            lastRidePackage = null
-            lastRideScreenText = null
             OverlayManager.hide(this)
         }
     }
@@ -79,28 +73,19 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         if (!monitoringEnabled()) return
         val pkg = event?.packageName?.toString() ?: return
         if (pkg !in supportedPackages) {
-            if (pkg != packageName) {
-                lastSignature = ""
-                lastRidePackage = null
-                lastRideScreenText = null
-            }
+            if (pkg != packageName) lastSignature = ""
             return
         }
         if (Settings.canDrawOverlays(this)) {
             OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
         }
         val root = rootInActiveWindow
-        val screenText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-        lastRidePackage = pkg
-        lastRideScreenText = screenText
-        val exactOffer = extractOfferContextFromNode(root)
-        if (exactOffer != null) {
-            analyzeScreen(pkg, exactOffer.text, manual = false)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // If the offer is drawn as pixels rather than accessibility text, try local OCR.
-            captureVisibleScreen(manual = false, sourcePackage = pkg, baseText = screenText)
-        } else if (screenText.isNotBlank()) {
-            analyzeScreen(pkg, screenText, manual = false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Prefer the visible offer card geometry when another ride is active.
+            captureVisibleScreen(manual = false, sourcePackage = pkg)
+        } else {
+            val exactOffer = extractOfferContextFromNode(root)
+            if (exactOffer != null) analyzeScreen(pkg, exactOffer.text, manual = false)
         }
     }
 
@@ -112,18 +97,12 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             return
         }
         val root = rootInActiveWindow
-        val text = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-        lastRidePackage = pkg
-        lastRideScreenText = text
-        val exactOffer = extractOfferContextFromNode(root)
-        if (exactOffer != null) {
-            analyzeScreen(pkg, exactOffer.text, manual = true)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            captureVisibleScreen(manual = true, sourcePackage = pkg, baseText = text)
-        } else if (text.isNotBlank()) {
-            analyzeScreen(pkg, text, manual = true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            captureVisibleScreen(manual = true, sourcePackage = pkg)
         } else {
-            showScanMessage("Não consegui ler os dados dessa oferta.", OverlayManager.WARNING)
+            val exactOffer = extractOfferContextFromNode(root)
+            if (exactOffer != null) analyzeScreen(pkg, exactOffer.text, manual = true)
+            else showScanMessage("Não consegui separar esta oferta com segurança. Não calculei para não misturar com a corrida atual.", OverlayManager.WARNING)
         }
     }
 
@@ -145,14 +124,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun captureVisibleScreen(manual: Boolean, sourcePackage: String, baseText: String?) {
+    private fun captureVisibleScreen(manual: Boolean, sourcePackage: String) {
         if (!monitoringEnabled() || sourcePackage !in supportedPackages) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            if (manual) {
-                val cached = lastRideScreenText
-                if (cached != null && lastRidePackage != null) analyzeScreen(lastRidePackage!!, cached, manual = true)
-                else showScanMessage("A leitura visual precisa do Android 11 ou mais recente.", OverlayManager.WARNING)
-            }
+            if (manual) showScanMessage("Sem leitura visual neste Android, não consegui isolar a nova oferta com segurança.", OverlayManager.WARNING)
             return
         }
         val now = System.currentTimeMillis()
@@ -185,12 +160,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                                 .replace(Regex("""\s+"""), " ").trim()
                             bitmap.recycle()
                             screenshotInFlight = false
-                            val exactOffer = extractOfferContext(baseText.orEmpty()) ?: extractOfferContext(visibleText)
-                            val fallbackText = if (!baseText.isNullOrBlank()) baseText else visibleText
-                            if (sourcePackage in supportedPackages) {
-                                lastRidePackage = sourcePackage
-                                lastRideScreenText = fallbackText
-                            }
+                            // Parse only OCR lines visible outside our own overlays. Do not
+                            // merge the flattened Accessibility tree back in: it can mix the
+                            // active trip route with the incoming offer card.
+                            val exactOffer = extractOfferContext(visibleText)
                             if (exactOffer != null) {
                                 analyzeScreen(sourcePackage, exactOffer.text, manual)
                             } else if (manual && visibleText.isNotBlank()) {
@@ -218,20 +191,12 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun screenshotFailed() {
-        val pkg = lastRidePackage
-        val text = lastRideScreenText
-        if (pkg != null && !text.isNullOrBlank() && hasEssentialText(text)) {
-            analyzeScreen(pkg, text, manual = true)
-        } else {
-            showScanMessage("Não consegui capturar esta tela. Ela pode estar protegida ou o texto pode ter passado rápido.", OverlayManager.WARNING)
-        }
+        showScanMessage("Não consegui confirmar os dados visíveis. Não calculei para evitar misturar a corrida atual com a nova oferta.", OverlayManager.WARNING)
     }
 
     private fun showScanMessage(message: String, status: Int) {
         OverlayManager.show(this, message, status)
     }
-
-    private fun hasEssentialText(text: String): Boolean = extractOfferContext(text) != null
 
     private fun extractOfferContext(text: String): OfferContext? {
         val actions = OFFER_ACTION.findAll(text).toList()
@@ -285,28 +250,31 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
 
     private fun extractOfferContextFromNode(root: AccessibilityNodeInfo?): OfferContext? {
         if (root == null) return null
-        var bestContext: OfferContext? = null
-        var bestScopeLength = Int.MAX_VALUE
-        fun visit(node: AccessibilityNodeInfo?): String {
-            if (node == null) return ""
-            val out = StringBuilder()
+        val contexts = linkedMapOf<String, OfferContext>()
+        fun visit(node: AccessibilityNodeInfo?) {
+            if (node == null) return
             try {
-                val nodeText = node.text?.toString().orEmpty()
-                val description = node.contentDescription?.toString().orEmpty()
-                if (nodeText.isNotBlank()) out.append(nodeText).append(' ')
-                if (description.isNotBlank() && description != nodeText) out.append(description).append(' ')
-                for (i in 0 until node.childCount) out.append(visit(node.getChild(i))).append(' ')
+                val ownText = listOf(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty())
+                    .filter { it.isNotBlank() }.distinct().joinToString(" ")
+                if (OFFER_ACTION.containsMatchIn(ownText)) {
+                    var ancestor: AccessibilityNodeInfo? = node
+                    var depth = 0
+                    while (ancestor != null && depth < 12) {
+                        val scope = collectText(ancestor).replace(Regex("""\s+"""), " ").trim()
+                        val exact = extractOfferContext(scope)
+                        if (exact != null) {
+                            contexts.putIfAbsent("${exact.fare}:${exact.text}", exact)
+                            break
+                        }
+                        ancestor = ancestor.parent
+                        depth++
+                    }
+                }
+                for (i in 0 until node.childCount) visit(node.getChild(i))
             } catch (_: Exception) { }
-            val scope = out.toString().replace(Regex("""\s+"""), " ").trim()
-            val exact = extractOfferContext(scope)
-            if (exact != null && scope.length < bestScopeLength) {
-                bestContext = exact
-                bestScopeLength = scope.length
-            }
-            return scope
         }
         visit(root)
-        return bestContext
+        return contexts.values.singleOrNull()
     }
 
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
@@ -401,8 +369,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         if (node == null) return ""
         val out = StringBuilder()
         try {
-            node.text?.let { out.append(it).append(' ') }
-            node.contentDescription?.let { out.append(it).append(' ') }
+            val nodeText = node.text?.toString().orEmpty()
+            val description = node.contentDescription?.toString().orEmpty()
+            if (nodeText.isNotBlank()) out.append(nodeText).append(' ')
+            if (description.isNotBlank() && description != nodeText) out.append(description).append(' ')
             for (i in 0 until node.childCount) out.append(collectText(node.getChild(i))).append(' ')
         } catch (_: Exception) { }
         return out.toString()
