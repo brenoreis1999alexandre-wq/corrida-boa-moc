@@ -115,7 +115,7 @@ internal object OverlayManager {
                         } else if (System.currentTimeMillis() - downAt >= ViewConfiguration.getLongPressTimeout()) {
                             onLongPress()
                         } else if (bubblePriceVisible || resultView != null) {
-                            handler.removeCallbacks(bubblePriceResetTask)
+                            bubblePriceResetTask?.let { handler.removeCallbacks(it) }
                             bubblePriceResetTask = null
                             bubblePriceVisible = false
                             bubblePrice = ""
@@ -232,7 +232,7 @@ internal object OverlayManager {
             bubbleDuration = totalMinutes.removeSuffix(",0").removeSuffix(".0")
             bubblePrice = offerAmount.removePrefix("R$").trim()
             bubblePriceVisible = bubblePrice.isNotBlank()
-            handler.removeCallbacks(bubblePriceResetTask)
+            bubblePriceResetTask?.let { handler.removeCallbacks(it) }
             renderBubble(service)
             val resetPrice = Runnable {
                 bubblePriceVisible = false
@@ -411,7 +411,7 @@ internal object OverlayManager {
             windowManager = null
             bubbleStatus = null
             bubbleDuration = ""
-            handler.removeCallbacks(bubblePriceResetTask)
+            bubblePriceResetTask?.let { handler.removeCallbacks(it) }
             bubblePriceResetTask = null
             bubblePrice = ""
             bubblePriceVisible = false
