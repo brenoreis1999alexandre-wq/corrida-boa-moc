@@ -308,7 +308,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             runCatching { history.save(record) }
         }
         OverlayManager.showOfferResult(
-            this, net.money(), totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(),
+            this, fare.money(), fuelCost.money(), net.money(), totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(),
             netKm.money(), netHour.money(), netMinute.money(), status
         )
     }

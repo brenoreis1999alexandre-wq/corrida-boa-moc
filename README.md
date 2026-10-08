@@ -7,7 +7,7 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
 - Botão no painel liga/desliga o monitoramento; ao desligar, a bolha some, e ao ligar, volta.
 - OCR automático só examina Uber Driver, 99 Motorista e inDrive; exige sinais de uma ação de oferta ativa e dados suficientes da rota, ignorando telas de navegação sem solicitação.
-- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 5 segundos: valor que sobra após combustível, R$/km bruto para comparar com a oferta e métricas líquidas por km, hora e minuto claramente identificadas.
+- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 5 segundos: valor da oferta − combustível estimado = sobra, R$/km bruto para comparar com a oferta e métricas líquidas por km, hora e minuto claramente identificadas.
 - Toque na bolha para fazer OCR da tela atual; segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
 - A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.

@@ -164,6 +164,8 @@ internal object OverlayManager {
 
     fun showOfferResult(
         service: AccessibilityService,
+        offerAmount: String,
+        fuelCostAmount: String,
         netAmount: String,
         totalKm: String,
         totalMinutes: String,
@@ -214,6 +216,14 @@ internal object OverlayManager {
             })
             header.addView(routeGroup, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             card.addView(header)
+            card.addView(TextView(service).apply {
+                text = "Oferta $offerAmount − gasolina $fuelCostAmount = sobra $netAmount"
+                textSize = 10f
+                setTextColor(Color.rgb(220, 228, 243))
+                setPadding(0, dp(service, 4), 0, 0)
+                maxLines = 1
+                gravity = Gravity.CENTER
+            })
 
             val metrics = LinearLayout(service).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -242,7 +252,7 @@ internal object OverlayManager {
                 metrics.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             card.addView(metrics)
-            card.contentDescription = "Sobra $netAmount; bruto $grossPerKm por km; $totalKm km em $totalMinutes minutos; líquido $perKm por km, $perHour por hora e $perMinute por minuto"
+            card.contentDescription = "Oferta $offerAmount menos gasolina $fuelCostAmount igual sobra $netAmount; bruto $grossPerKm por km; $totalKm km em $totalMinutes minutos; líquido $perKm por km, $perHour por hora e $perMinute por minuto"
             attachResult(service, card)
         }
     }
