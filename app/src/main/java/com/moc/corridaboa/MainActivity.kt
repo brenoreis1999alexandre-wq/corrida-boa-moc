@@ -160,7 +160,7 @@ class MainActivity : Activity() {
         val dailyCard = card()
         dailyCard.addView(label("RESUMO DE HOJE", 13, accent, true))
         dailyCard.addView(label(net.money(), 34, pale, true))
-        dailyCard.addView(label("Líquido estimado após combustível", 13, secondary))
+        dailyCard.addView(label("Lucro estimado após custos cadastrados", 13, secondary))
         dailyCard.addView(space(12))
         dailyCard.addView(metricRow(listOf(
             "OFERTAS" to todays.size.toString(),
@@ -235,7 +235,7 @@ class MainActivity : Activity() {
             else -> allRecords
         }
         val stats = card()
-        stats.addView(label("LÍQUIDO ESTIMADO DAS OFERTAS", 12, accent, true))
+        stats.addView(label("LUCRO ESTIMADO DAS OFERTAS", 12, accent, true))
         stats.addView(label(filtered.sumOf { it.net }.money(), 29, pale, true))
         stats.addView(metricRow(listOf(
             "OFERTAS" to filtered.size.toString(),
@@ -281,21 +281,22 @@ class MainActivity : Activity() {
         val consumption = editField(inputs, "Seu carro faz quantos km/L?", Prefs.CONSUMO, 12.0)
         val fuel = editField(inputs, "Preço da gasolina na sua cidade (R$/L)", Prefs.GAS, 6.20)
         val fixedCost = editField(inputs, "Aluguel ou financiamento mensal (R$; opcional)", Prefs.MONTHLY_FIXED, 0.0)
+        val otherMonthlyCost = editField(inputs, "Outros custos mensais (R$; opcional)", Prefs.MONTHLY_OTHER, 0.0)
         val monthlyDistance = editField(inputs, "Quantos km você roda no mês?", Prefs.MONTHLY_KM, 0.0)
-        val desiredNet = editField(inputs, "Quanto quer que sobre para você por km?", Prefs.CALC_GOAL_PER_KM, 2.0)
-        inputs.addView(label("Se informar aluguel/financiamento, preencha também os km rodados no mês para dividir esse custo.", 12, secondary))
+        val desiredNet = editField(inputs, "Quanto quer lucrar por km depois dos custos?", Prefs.CALC_GOAL_PER_KM, 2.0)
+        inputs.addView(label("Custos mensais são divididos pelos km do mês e descontados de cada oferta. Informe todos os custos que quiser incluir.", 12, secondary))
         content.addView(inputs)
         content.addView(space(9))
 
-        var targetAfterFuelPerKm = 0.0
+        var profitTargetPerKm = 0.0
         val resultCard = card().apply { visibility = View.GONE }
         val result = label("", 15, pale)
         resultCard.addView(label("SEU RESULTADO", 13, accent, true))
         resultCard.addView(result)
         content.addView(resultCard)
         val applyButton = actionButton("Usar resultado nas metas por km") {
-            prefs.edit().putFloat(Prefs.MIN_KM, targetAfterFuelPerKm.toFloat()).apply()
-            Toast.makeText(this, "Meta líquida por km atualizada", Toast.LENGTH_SHORT).show()
+            prefs.edit().putFloat(Prefs.MIN_KM, profitTargetPerKm.toFloat()).apply()
+            Toast.makeText(this, "Meta de lucro por km atualizada", Toast.LENGTH_SHORT).show()
         }.apply { visibility = View.GONE }
         content.addView(applyButton)
         content.addView(space(8))
@@ -303,39 +304,42 @@ class MainActivity : Activity() {
             val consumptionValue = parse(consumption.text.toString())
             val fuelValue = parse(fuel.text.toString())
             val fixedValue = parse(fixedCost.text.toString())
+            val otherMonthlyValue = parse(otherMonthlyCost.text.toString())
             val monthlyKmValue = parse(monthlyDistance.text.toString())
             val desiredValue = parse(desiredNet.text.toString())
-            if (listOf(consumptionValue, fuelValue, fixedValue, monthlyKmValue, desiredValue).any { it == null } ||
+            if (listOf(consumptionValue, fuelValue, fixedValue, otherMonthlyValue, monthlyKmValue, desiredValue).any { it == null } ||
                 (consumptionValue ?: 0.0) <= 0.0 || (fuelValue ?: 0.0) <= 0.0 ||
-                (fixedValue ?: -1.0) < 0.0 || (monthlyKmValue ?: -1.0) < 0.0 || (desiredValue ?: -1.0) < 0.0 ||
-                ((fixedValue ?: 0.0) > 0.0 && (monthlyKmValue ?: 0.0) <= 0.0)) {
-                Toast.makeText(this, "Confira os valores e informe km/mês se houver aluguel ou financiamento.", Toast.LENGTH_LONG).show()
+                (fixedValue ?: -1.0) < 0.0 || (otherMonthlyValue ?: -1.0) < 0.0 || (monthlyKmValue ?: -1.0) < 0.0 || (desiredValue ?: -1.0) < 0.0 ||
+                (((fixedValue ?: 0.0) + (otherMonthlyValue ?: 0.0)) > 0.0 && (monthlyKmValue ?: 0.0) <= 0.0)) {
+                Toast.makeText(this, "Confira os valores e informe km/mês se tiver custos mensais.", Toast.LENGTH_LONG).show()
                 return@actionButton
             }
             val consumptionNumber = consumptionValue!!
             val fuelNumber = fuelValue!!
             val fixedNumber = fixedValue!!
+            val otherMonthlyNumber = otherMonthlyValue!!
             val monthlyKmNumber = monthlyKmValue!!
             val desiredNumber = desiredValue!!
             val fuelPerKm = fuelNumber / consumptionNumber
-            val fixedPerKm = if (fixedNumber > 0.0) fixedNumber / monthlyKmNumber else 0.0
-            val breakEvenPerKm = fuelPerKm + fixedPerKm
-            targetAfterFuelPerKm = fixedPerKm + desiredNumber
+            val monthlyCostPerKm = if (fixedNumber + otherMonthlyNumber > 0.0) (fixedNumber + otherMonthlyNumber) / monthlyKmNumber else 0.0
+            val breakEvenPerKm = fuelPerKm + monthlyCostPerKm
+            profitTargetPerKm = desiredNumber
             val idealGrossPerKm = breakEvenPerKm + desiredNumber
             prefs.edit()
                 .putFloat(Prefs.GAS, fuelNumber.toFloat())
                 .putFloat(Prefs.CONSUMO, consumptionNumber.toFloat())
                 .putFloat(Prefs.MONTHLY_FIXED, fixedNumber.toFloat())
+                .putFloat(Prefs.MONTHLY_OTHER, otherMonthlyNumber.toFloat())
                 .putFloat(Prefs.MONTHLY_KM, monthlyKmNumber.toFloat())
                 .putFloat(Prefs.CALC_GOAL_PER_KM, desiredNumber.toFloat())
                 .apply()
-            result.text = "Combustível: ${fuelPerKm.money()}/km\nCusto mensal dividido por km: ${fixedPerKm.money()}/km\nPonto de equilíbrio: ${breakEvenPerKm.money()}/km\nIdeal da oferta: ${idealGrossPerKm.money()}/km (inclui sua meta de ${desiredNumber.money()}/km)"
-            applyButton.text = "Usar ${targetAfterFuelPerKm.money()}/km como meta líquida nas recomendações"
+            result.text = "Combustível: ${fuelPerKm.money()}/km\nCustos mensais rateados: ${monthlyCostPerKm.money()}/km\nPonto de equilíbrio: ${breakEvenPerKm.money()}/km\nOferta ideal: ${idealGrossPerKm.money()}/km para sobrar ${desiredNumber.money()}/km de lucro estimado."
+            applyButton.text = "Usar ${profitTargetPerKm.money()}/km como meta de lucro"
             resultCard.visibility = View.VISIBLE
             applyButton.visibility = View.VISIBLE
         })
         content.addView(space(10))
-        content.addView(label("Estimativa com combustível e custo mensal informado. Não inclui manutenção, pneus, impostos ou depreciação.", 12, secondary))
+        content.addView(label("Lucro estimado com os custos cadastrados. Custos que não informar — como manutenção, pneus, impostos ou depreciação — ficam de fora.", 12, secondary))
         return scroll(content)
     }
 
@@ -357,10 +361,10 @@ class MainActivity : Activity() {
 
         val thresholdCard = card()
         thresholdCard.addView(label("METAS DE RECOMENDAÇÃO", 14, accent, true))
-        targetKm = editField(thresholdCard, "Ganhos líquidos mínimos por km (R$/km)", Prefs.MIN_KM, 2.0)
-        targetHour = editField(thresholdCard, "Ganhos líquidos mínimos por hora (R$/h)", Prefs.BOA_HORA, 35.0)
-        targetMinute = editField(thresholdCard, "Ganhos líquidos mínimos por minuto (R$/min)", Prefs.MIN_MINUTO, 0.58)
-        thresholdCard.addView(label("A corrida boa precisa atingir as três metas. A média atinge parte delas; a ruim não atinge nenhuma ou deixa prejuízo.", 12, secondary))
+        targetKm = editField(thresholdCard, "Lucro estimado mínimo por km (R$/km)", Prefs.MIN_KM, 2.0)
+        targetHour = editField(thresholdCard, "Lucro estimado mínimo por hora (R$/h)", Prefs.BOA_HORA, 35.0)
+        targetMinute = editField(thresholdCard, "Lucro estimado mínimo por minuto (R$/min)", Prefs.MIN_MINUTO, 0.58)
+        thresholdCard.addView(label("As metas são comparadas ao lucro estimado depois dos custos cadastrados. Boa: atinge as três; média: parte; ruim: nenhuma ou prejuízo.", 12, secondary))
         content.addView(thresholdCard)
         content.addView(space(9))
         content.addView(actionButton("Salvar configurações") {
@@ -407,7 +411,7 @@ class MainActivity : Activity() {
         bubble.addView(label("Arraste a bolinha para onde quiser. Toque para ler a tela atual por OCR; segure para ligar ou desligar o OCR contínuo (Android 11+). As imagens são processadas localmente; o modo contínuo pode gastar mais bateria.", 13, secondary))
         content.addView(bubble)
         content.addView(space(12))
-        content.addView(label("O cálculo desconta combustível estimado. Não inclui manutenção, pneus, depreciação, impostos ou outros custos.", 12, secondary))
+        content.addView(label("O lucro usa combustível e custos mensais cadastrados na calculadora. O que não informar — manutenção, pneus, impostos ou depreciação — não será descontado.", 12, secondary))
         return scroll(content)
     }
 
@@ -444,8 +448,8 @@ class MainActivity : Activity() {
         card.addView(label("${r.fare.money()}  •  ${ (r.pickupKm + r.tripKm).oneDecimal()} km  •  ${r.minutes.oneDecimal()} min", 14, pale, true))
         card.addView(label("Origem: ${r.pickup.ifBlank { "não identificada" }}", 12, secondary))
         card.addView(label("Destino: ${r.dropoff.ifBlank { "não identificado" }}", 12, secondary))
-        card.addView(label("Combustível: ${r.fuelCost.money()}  •  Líquido estimado: ${r.net.money()}", 12, pale))
-        card.addView(label("Líquido: ${r.netHour.money()}/h  •  ${r.netKm.money()}/km  •  ${r.netMinute.money()}/min", 12, secondary))
+        card.addView(label("Gasolina: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}  •  Total: ${(r.fuelCost + r.monthlyCost).money()}", 12, pale))
+        card.addView(label("Lucro estimado: ${r.net.money()}  •  ${r.netKm.money()}/km  •  ${r.netHour.money()}/h  •  ${r.netMinute.money()}/min", 13, secondary))
         return card
     }
 
@@ -556,6 +560,7 @@ internal object Prefs {
     const val MIN_MINUTO = "good_minute"
     const val MONITORING_ENABLED = "monitoring_enabled"
     const val MONTHLY_FIXED = "monthly_fixed_cost"
+    const val MONTHLY_OTHER = "monthly_other_costs"
     const val MONTHLY_KM = "monthly_distance_km"
     const val CALC_GOAL_PER_KM = "calculator_goal_per_km"
     const val OCR_CONTINUOUS = "ocr_continuous"

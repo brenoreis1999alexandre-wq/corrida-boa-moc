@@ -252,7 +252,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 append("OFERTA DETECTADA — LEITURA PARCIAL\nValor mostrado: ${fare.money()}\n")
                 if (allDistances.isNotEmpty()) append("Quilômetros lidos: ${allDistances.take(2).sum().oneDecimal()} km\n")
                 if (allMinutes.isNotEmpty()) append("Tempo lido: ${allMinutes.take(2).sum().oneDecimal()} min\n")
-                append("Não calculei o líquido porque faltam dados da rota.")
+                append("Não calculei o lucro estimado porque faltam dados da rota.")
             }
             val signature = "incompleto:$fare:${screenText.hashCode()}"
             if (manual || shouldDisplay(signature)) OverlayManager.show(this, partial, OverlayManager.WARNING)
@@ -275,22 +275,31 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
 
         val gasPrice = settings.getFloat(Prefs.GAS, 6.20f).toDouble()
         val consumption = max(0.1, settings.getFloat(Prefs.CONSUMO, 12f).toDouble())
+        val monthlyFixed = settings.getFloat(Prefs.MONTHLY_FIXED, 0f).toDouble()
+        val monthlyOther = settings.getFloat(Prefs.MONTHLY_OTHER, 0f).toDouble()
+        val monthlyDistance = settings.getFloat(Prefs.MONTHLY_KM, 0f).toDouble()
+        if ((monthlyFixed + monthlyOther) > 0.0 && monthlyDistance <= 0.0) {
+            if (manual) showScanMessage("Informe os km rodados por mês na Calculadora de Ganhos para incluir os custos mensais.", OverlayManager.WARNING)
+            return
+        }
         val targetPerHour = settings.getFloat(Prefs.BOA_HORA, 35f).toDouble()
         val targetPerKm = settings.getFloat(Prefs.MIN_KM, 2f).toDouble()
         val targetPerMinute = settings.getFloat(Prefs.MIN_MINUTO, 0.58f).toDouble()
         val fuelCost = totalKm * gasPrice / consumption
-        val net = fare - fuelCost
+        val monthlyCost = if (monthlyDistance > 0.0) totalKm * (monthlyFixed + monthlyOther) / monthlyDistance else 0.0
+        val totalCosts = fuelCost + monthlyCost
+        val profit = fare - totalCosts
         val grossHour = fare / (tempoTotal / 60.0)
         val grossMinute = fare / tempoTotal
         val grossKm = fare / totalKm
-        val netHour = net / (tempoTotal / 60.0)
-        val netMinute = net / tempoTotal
-        val netKm = net / totalKm
-        val meetsKm = netKm >= targetPerKm
-        val meetsHour = netHour >= targetPerHour
-        val meetsMinute = netMinute >= targetPerMinute
+        val profitHour = profit / (tempoTotal / 60.0)
+        val profitMinute = profit / tempoTotal
+        val profitKm = profit / totalKm
+        val meetsKm = profitKm >= targetPerKm
+        val meetsHour = profitHour >= targetPerHour
+        val meetsMinute = profitMinute >= targetPerMinute
         val status = when {
-            net <= 0.0 || (!meetsKm && !meetsHour && !meetsMinute) -> OverlayManager.BAD
+            profit <= 0.0 || (!meetsKm && !meetsHour && !meetsMinute) -> OverlayManager.BAD
             meetsKm && meetsHour && meetsMinute -> OverlayManager.GOOD
             else -> OverlayManager.MAYBE
         }
@@ -302,14 +311,15 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             lastSignature = signature
             lastAnnouncedAt = now
             val record = RideRecord(
-                now, pickup, dropoff, fare, kmBusca, kmViagem, tempoTotal, fuelCost, net,
-                grossHour, grossKm, grossMinute, netHour, netKm, netMinute, status
+                now, pickup, dropoff, fare, kmBusca, kmViagem, tempoTotal, fuelCost, monthlyCost, profit,
+                grossHour, grossKm, grossMinute, profitHour, profitKm, profitMinute, status
             )
             runCatching { history.save(record) }
         }
         OverlayManager.showOfferResult(
-            this, fare.money(), fuelCost.money(), net.money(), totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(),
-            netKm.money(), netHour.money(), netMinute.money(), status
+            this, fare.money(), fuelCost.money(), monthlyCost.money(), totalCosts.money(), profit.money(),
+            totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(),
+            profitKm.money(), profitHour.money(), profitMinute.money(), status
         )
     }
 

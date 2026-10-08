@@ -60,9 +60,10 @@ Origem: $pickup
 Destino: $dropoff
 Oferta: ${r.fare.money()}  •  Buscar: ${r.pickupKm.oneDecimal()} km  •  Viagem: ${r.tripKm.oneDecimal()} km
 Total: ${(r.pickupKm + r.tripKm).oneDecimal()} km  •  ${r.minutes.oneDecimal()} min
-Combustível: ${r.fuelCost.money()}  •  Líquido estimado: ${r.net.money()}
+Gasolina: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}
+Lucro estimado: ${r.net.money()}
 Bruto: ${r.grossHour.money()}/h  •  ${r.grossKm.money()}/km  •  ${r.grossMinute.money()}/min
-Líquido: ${r.netHour.money()}/h  •  ${r.netKm.money()}/km  •  ${r.netMinute.money()}/min"""
+Lucro: ${r.netHour.money()}/h  •  ${r.netKm.money()}/km  •  ${r.netMinute.money()}/min"""
         return TextView(this).apply {
             text = summary
             textSize = 14f

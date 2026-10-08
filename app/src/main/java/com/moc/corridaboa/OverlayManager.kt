@@ -166,7 +166,9 @@ internal object OverlayManager {
         service: AccessibilityService,
         offerAmount: String,
         fuelCostAmount: String,
-        netAmount: String,
+        monthlyCostAmount: String,
+        totalCostsAmount: String,
+        profitAmount: String,
         totalKm: String,
         totalMinutes: String,
         grossPerKm: String,
@@ -185,14 +187,14 @@ internal object OverlayManager {
             val amountGroup = LinearLayout(service).apply { orientation = LinearLayout.VERTICAL }
             amountGroup.addView(TextView(service).apply {
                 val category = when (status) { GOOD -> "BOA"; MAYBE -> "MÉDIA"; BAD -> "RUIM"; else -> "OFERTA" }
-                text = "$category  •  LÍQUIDO"
-                textSize = 10f
-                setTextColor(Color.rgb(185, 197, 219))
+                text = "$category  •  LUCRO ESTIMADO"
+                textSize = 14f
+                setTextColor(accent)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
             amountGroup.addView(TextView(service).apply {
-                text = netAmount
-                textSize = 25f
+                text = profitAmount
+                textSize = 32f
                 setTextColor(accent)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
@@ -203,24 +205,32 @@ internal object OverlayManager {
             }
             routeGroup.addView(TextView(service).apply {
                 text = "$totalKm km  •  $totalMinutes min"
-                textSize = 12f
+                textSize = 14f
                 setTextColor(Color.rgb(241, 245, 255))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 gravity = Gravity.END
             })
             routeGroup.addView(TextView(service).apply {
                 text = "BRUTO/KM  $grossPerKm"
-                textSize = 10f
+                textSize = 12f
                 setTextColor(Color.rgb(185, 197, 219))
                 gravity = Gravity.END
             })
             header.addView(routeGroup, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             card.addView(header)
             card.addView(TextView(service).apply {
-                text = "Oferta $offerAmount − gasolina $fuelCostAmount = sobra $netAmount"
-                textSize = 10f
+                text = "Oferta $offerAmount − custos cadastrados $totalCostsAmount = lucro estimado $profitAmount"
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, dp(service, 5), 0, 0)
+                gravity = Gravity.CENTER
+            })
+            card.addView(TextView(service).apply {
+                text = "Gasolina $fuelCostAmount  •  mensais rateados $monthlyCostAmount"
+                textSize = 12f
                 setTextColor(Color.rgb(220, 228, 243))
-                setPadding(0, dp(service, 4), 0, 0)
+                setPadding(0, dp(service, 1), 0, 0)
                 maxLines = 1
                 gravity = Gravity.CENTER
             })
@@ -230,21 +240,21 @@ internal object OverlayManager {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(service, 8), 0, 0)
             }
-            listOf("LÍQUIDO/KM" to perKm, "LÍQUIDO/H" to perHour, "LÍQUIDO/MIN" to perMinute).forEach { (label, value) ->
+            listOf("LUCRO/KM" to perKm, "LUCRO/HORA" to perHour, "LUCRO/MIN" to perMinute).forEach { (label, value) ->
                 val cell = LinearLayout(service).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
                 }
                 cell.addView(TextView(service).apply {
                     text = label
-                    textSize = 10f
-                    setTextColor(Color.rgb(185, 197, 219))
+                    textSize = 13f
+                    setTextColor(Color.rgb(220, 228, 243))
                     gravity = Gravity.CENTER
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                 })
                 cell.addView(TextView(service).apply {
                     text = value
-                    textSize = 16f
+                    textSize = 20f
                     setTextColor(Color.WHITE)
                     gravity = Gravity.CENTER
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -252,7 +262,7 @@ internal object OverlayManager {
                 metrics.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             card.addView(metrics)
-            card.contentDescription = "Oferta $offerAmount menos gasolina $fuelCostAmount igual sobra $netAmount; bruto $grossPerKm por km; $totalKm km em $totalMinutes minutos; líquido $perKm por km, $perHour por hora e $perMinute por minuto"
+            card.contentDescription = "Oferta $offerAmount menos custos cadastrados $totalCostsAmount igual lucro estimado $profitAmount; gasolina $fuelCostAmount e custos mensais rateados $monthlyCostAmount; bruto $grossPerKm por km; lucro por km $perKm, por hora $perHour e por minuto $perMinute"
             attachResult(service, card)
         }
     }
@@ -261,9 +271,9 @@ internal object OverlayManager {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(service, 16), dp(service, 11), dp(service, 16), dp(service, 11))
         background = GradientDrawable().apply {
-            setColor(Color.rgb(24, 31, 48))
+            setColor(if (accent == Color.rgb(255, 45, 60)) Color.rgb(48, 22, 30) else Color.rgb(24, 31, 48))
             cornerRadius = dp(service, 18).toFloat()
-            setStroke(dp(service, 2), accent)
+            setStroke(dp(service, 3), accent)
         }
         elevation = dp(service, 12).toFloat()
     }
@@ -271,7 +281,7 @@ internal object OverlayManager {
     private fun statusColor(status: Int) = when (status) {
         GOOD -> Color.rgb(37, 225, 151)
         MAYBE -> Color.rgb(255, 200, 72)
-        BAD -> Color.rgb(255, 105, 105)
+        BAD -> Color.rgb(255, 45, 60)
         else -> Color.rgb(117, 176, 255)
     }
 

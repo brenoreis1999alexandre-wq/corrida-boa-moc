@@ -14,6 +14,7 @@ internal data class RideRecord(
     val tripKm: Double,
     val minutes: Double,
     val fuelCost: Double,
+    val monthlyCost: Double,
     val net: Double,
     val grossHour: Double,
     val grossKm: Double,
@@ -24,7 +25,7 @@ internal data class RideRecord(
     val status: Int
 )
 
-internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrida_boa_history.db", null, 1) {
+internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrida_boa_history.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE offers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +37,7 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
             trip_km REAL NOT NULL,
             minutes REAL NOT NULL,
             fuel_cost REAL NOT NULL,
+            monthly_cost REAL NOT NULL DEFAULT 0,
             net REAL NOT NULL,
             gross_hour REAL NOT NULL,
             gross_km REAL NOT NULL,
@@ -47,13 +49,15 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
         )""".trimIndent())
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) db.execSQL("ALTER TABLE offers ADD COLUMN monthly_cost REAL NOT NULL DEFAULT 0")
+    }
 
     fun save(r: RideRecord) {
         val values = ContentValues().apply {
             put("created_at", r.createdAt); put("pickup", r.pickup); put("dropoff", r.dropoff)
             put("fare", r.fare); put("pickup_km", r.pickupKm); put("trip_km", r.tripKm)
-            put("minutes", r.minutes); put("fuel_cost", r.fuelCost); put("net", r.net)
+            put("minutes", r.minutes); put("fuel_cost", r.fuelCost); put("monthly_cost", r.monthlyCost); put("net", r.net)
             put("gross_hour", r.grossHour); put("gross_km", r.grossKm); put("gross_minute", r.grossMinute)
             put("net_hour", r.netHour); put("net_km", r.netKm); put("net_minute", r.netMinute)
             put("status", r.status)
@@ -78,6 +82,7 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
                     c.getDouble(c.getColumnIndexOrThrow("trip_km")),
                     c.getDouble(c.getColumnIndexOrThrow("minutes")),
                     c.getDouble(c.getColumnIndexOrThrow("fuel_cost")),
+                    c.getDouble(c.getColumnIndexOrThrow("monthly_cost")),
                     c.getDouble(c.getColumnIndexOrThrow("net")),
                     c.getDouble(c.getColumnIndexOrThrow("gross_hour")),
                     c.getDouble(c.getColumnIndexOrThrow("gross_km")),

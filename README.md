@@ -7,23 +7,23 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
 - Botão no painel liga/desliga o monitoramento; ao desligar, a bolha some, e ao ligar, volta.
 - OCR automático só examina Uber Driver, 99 Motorista e inDrive; exige sinais de uma ação de oferta ativa e dados suficientes da rota, ignorando telas de navegação sem solicitação.
-- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 5 segundos: valor da oferta − combustível estimado = sobra, R$/km bruto para comparar com a oferta e métricas líquidas por km, hora e minuto claramente identificadas.
+- Ao detectar oferta com dados suficientes, mostra cartão silencioso por 5 segundos: valor da oferta − custos cadastrados = lucro estimado, R$/km bruto para comparar com a oferta e lucro estimado por km, hora e minuto.
 - Toque na bolha para fazer OCR da tela atual; segure para ligar/desligar o OCR contínuo, que examina a tela aproximadamente a cada 1,4 s.
 - A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.
 - Classificação informativa e silenciosa: corrida boa, média ou ruim; cálculos de tarifa, distância, tempo e combustível aparecem na tela, sem fala por voz.
 - Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo.
 - Painel resume as ofertas analisadas. Os valores são estimativas de ofertas, não comprovantes de corridas realizadas.
-- Calculadora de ganhos: estima custo de combustível por km, parcela mensal de aluguel/financiamento por km e uma meta bruta ideal; o custo mensal é opcional e distribuído pelos km planejados para o mês.
+- Calculadora de ganhos: estima combustível, aluguel/financiamento e outros custos mensais informados por km, e calcula uma meta bruta ideal; os custos mensais são distribuídos pelos km planejados para o mês.
 - Ajustes de gasolina, consumo e critérios; o custo por km de combustível é calculado a partir dos dados informados.
 - O app não toca em botões, aceita ou recusa corridas.
 
 ## Critérios iniciais
 
-- A pessoa define metas líquidas por km, hora e minuto.
-- Boa: atinge as três metas; média: atinge uma ou duas; ruim: não atinge nenhuma ou o líquido após combustível é ≤ 0.
+- A pessoa define metas de lucro estimado por km, hora e minuto.
+- Boa: atinge as três metas; média: atinge uma ou duas; ruim: não atinge nenhuma ou o lucro estimado após os custos cadastrados é ≤ 0.
 
-As tarifas por km, hora e minuto são indicadores diferentes e não se somam umas às outras. O app soma o preço da oferta, estima o combustível e mostra o valor restante e cada indicador separadamente. O cálculo considera somente combustível, não manutenção, pneus, depreciação, impostos ou outros custos.
+Os indicadores por km, hora e minuto são valores diferentes e não se somam. O lucro estimado desconta combustível e custos mensais informados, rateados pelos km previstos no mês. Custos não cadastrados — como manutenção, pneus, depreciação ou impostos — não entram no cálculo; o resultado é uma estimativa, não lucro contábil garantido.
 
 ## Instalação e ativação
 
