@@ -52,14 +52,39 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             val activePackage = root?.packageName?.toString()
             if (activePackage != null && activePackage in supportedPackages) {
                 val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-                val hint = extractOfferContextFromNode(root) ?: extractOfferContext(treeText, allowActionless99 = is99Package(activePackage))
-                if (hint != null) requestOfferRead(activePackage, hint)
+                val is99 = is99Package(activePackage)
+                val treeOffer = extractOfferContextFromNode(root, allowActionless99 = is99)
+                    ?: extractOfferContext(treeText, allowActionless99 = is99)
+                if (is99 && treeOffer != null) {
+                    noteOfferVisible(activePackage, treeOffer)
+                    analyzeScreen(activePackage, treeOffer.text, manual = false)
+                } else if (treeOffer != null) requestOfferRead(activePackage, treeOffer)
                 else {
                     if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
                     captureVisibleScreen(manual = false, sourcePackage = activePackage)
                 }
             }
             handler.postDelayed(this, 1_400)
+        }
+    }
+    private val ninetyNinePollLoop = object : Runnable {
+        override fun run() {
+            if (!monitoringEnabled()) return
+            val root = rootInActiveWindow
+            val pkg = root?.packageName?.toString()
+            if (pkg != null && is99Package(pkg)) {
+                val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+                val offer = extractOfferContextFromNode(root, allowActionless99 = true)
+                    ?: extractOfferContext(treeText, allowActionless99 = true)
+                if (offer != null) {
+                    noteOfferVisible(pkg, offer)
+                    analyzeScreen(pkg, offer.text, manual = false)
+                } else {
+                    if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
+                    captureVisibleScreen(manual = false, sourcePackage = pkg)
+                }
+            }
+            handler.postDelayed(this, if (pkg != null && is99Package(pkg)) 1_200L else 2_000L)
         }
     }
 
@@ -71,10 +96,12 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
 
     private fun applyMonitoringState() {
         handler.removeCallbacks(continuousOcrLoop)
+        handler.removeCallbacks(ninetyNinePollLoop)
         if (monitoringEnabled() && Settings.canDrawOverlays(this)) {
             OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
             val continuous = settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
             OverlayManager.setOcrMode(this, continuous)
+            handler.post(ninetyNinePollLoop)
             if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) handler.post(continuousOcrLoop)
         } else {
             handler.removeCallbacks(resetOfferStateTask)
@@ -101,18 +128,22 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
         val root = rootInActiveWindow
         val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-        val nodeOffer = extractOfferContextFromNode(root) ?: extractOfferContext(treeText, allowActionless99 = is99Package(pkg))
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Use accessibility only to spot a new card; OCR remains the source for values.
-            val offerHint = nodeOffer ?: extractOfferContext(treeText, allowActionless99 = is99Package(pkg))
-            if (offerHint != null) requestOfferRead(pkg, offerHint)
-            else {
-                if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
-                captureVisibleScreen(manual = false, sourcePackage = pkg)
-            }
-        } else if (nodeOffer != null) {
-            noteOfferVisible(pkg, nodeOffer)
-            analyzeScreen(pkg, nodeOffer.text, manual = false)
+        val is99 = is99Package(pkg)
+        val treeOffer = extractOfferContextFromNode(root, allowActionless99 = is99)
+            ?: extractOfferContext(treeText, allowActionless99 = is99)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && is99 && treeOffer != null) {
+            // The 99 card has route/payment text in Accessibility but may omit an accept button;
+            // use its isolated card subtree directly instead of requiring a screen capture.
+            noteOfferVisible(pkg, treeOffer)
+            analyzeScreen(pkg, treeOffer.text, manual = false)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && treeOffer != null) {
+            requestOfferRead(pkg, treeOffer)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
+            captureVisibleScreen(manual = false, sourcePackage = pkg)
+        } else if (treeOffer != null) {
+            noteOfferVisible(pkg, treeOffer)
+            analyzeScreen(pkg, treeOffer.text, manual = false)
         } else if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) {
             noteNoOfferVisible()
         }
@@ -170,11 +201,21 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             return
         }
         val root = rootInActiveWindow
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val is99 = is99Package(pkg)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && is99) {
+            val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+            val exactOffer = extractOfferContextFromNode(root, allowActionless99 = true)
+                ?: extractOfferContext(treeText, allowActionless99 = true)
+            if (exactOffer != null) {
+                noteOfferVisible(pkg, exactOffer)
+                analyzeScreen(pkg, exactOffer.text, manual = true)
+            } else captureVisibleScreen(manual = true, sourcePackage = pkg)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             captureVisibleScreen(manual = true, sourcePackage = pkg)
         } else {
             val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-            val exactOffer = extractOfferContextFromNode(root) ?: extractOfferContext(treeText, allowActionless99 = is99Package(pkg))
+            val exactOffer = extractOfferContextFromNode(root, allowActionless99 = is99) 
+                ?: extractOfferContext(treeText, allowActionless99 = is99)
             if (exactOffer != null) {
                 noteOfferVisible(pkg, exactOffer)
                 analyzeScreen(pkg, exactOffer.text, manual = true)
@@ -367,16 +408,25 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 if (header.groupValues[3].equals("m", ignoreCase = true)) value / 1_000.0 else value
             }
             if (durations.size != 2 || distances.size != 2) continue
-            val contextText = text.substring(price.range.first, routeEnd).trim()
+            val markerBeforeFare = NINETY_NINE_CARD_MARKER.findAll(text.substring(0, price.range.first)).lastOrNull()
+            val contextStart = markerBeforeFare?.range?.first ?: price.range.first
+            val contextText = text.substring(contextStart, routeEnd).trim()
             val key = "$fare:${distances.joinToString(",")}:${durations.joinToString(",")}"
             candidates[key] = OfferContext(contextText, fare, distances, durations)
         }
         return candidates.values.singleOrNull()
     }
 
-    private fun extractOfferContextFromNode(root: AccessibilityNodeInfo?): OfferContext? {
+    private fun extractOfferContextFromNode(root: AccessibilityNodeInfo?, allowActionless99: Boolean = false): OfferContext? {
         if (root == null) return null
-        val contexts = linkedMapOf<String, OfferContext>()
+        val contexts = linkedMapOf<String, Pair<Int, OfferContext>>()
+        fun addContext(scope: String) {
+            if (scope.length > MAX_OFFER_CONTEXT * 2) return
+            val exact = extractOfferContext(scope, allowActionless99) ?: return
+            val key = "${exact.fare}:${exact.distancesKm.joinToString(",")}:${exact.durationsMin.joinToString(",")}"
+            val previous = contexts[key]
+            if (previous == null || scope.length < previous.first) contexts[key] = scope.length to exact
+        }
         fun visit(node: AccessibilityNodeInfo?) {
             if (node == null) return
             try {
@@ -387,10 +437,26 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     var depth = 0
                     while (ancestor != null && depth < 12) {
                         val scope = collectText(ancestor).replace(Regex("""\s+"""), " ").trim()
-                        val exact = extractOfferContext(scope)
+                        val exact = extractOfferContext(scope, allowActionless99)
                         if (exact != null) {
-                            contexts.putIfAbsent("${exact.fare}:${exact.text}", exact)
+                            addContext(scope)
                             break
+                        }
+                        ancestor = ancestor.parent
+                        depth++
+                    }
+                }
+                if (allowActionless99 && NINETY_NINE_CARD_MARKER.containsMatchIn(ownText)) {
+                    var ancestor: AccessibilityNodeInfo? = node
+                    var depth = 0
+                    while (ancestor != null && depth < 20) {
+                        val scope = collectText(ancestor).replace(Regex("""\s+"""), " ").trim()
+                        if (scope.length <= MAX_OFFER_CONTEXT * 2 && PRICE.containsMatchIn(scope)) {
+                            val exact = extractOfferContext(scope, allowActionless99 = true)
+                            if (exact != null) {
+                                addContext(scope)
+                                break
+                            }
                         }
                         ancestor = ancestor.parent
                         depth++
@@ -400,7 +466,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             } catch (_: Exception) { }
         }
         visit(root)
-        return contexts.values.singleOrNull()
+        return contexts.values.singleOrNull()?.second
     }
 
     private fun offerFingerprint(pkg: String, offer: OfferContext): String {
@@ -515,6 +581,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     override fun onInterrupt() { }
     override fun onDestroy() {
         handler.removeCallbacks(continuousOcrLoop)
+        handler.removeCallbacks(ninetyNinePollLoop)
+        handler.removeCallbacks(resetOfferStateTask)
         textRecognizer.close()
         OverlayManager.hide(this)
         if (activeService === this) activeService = null
