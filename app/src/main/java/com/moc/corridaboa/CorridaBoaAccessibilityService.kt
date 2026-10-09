@@ -151,6 +151,18 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
 
     private fun is99Package(pkg: String): Boolean = pkg in NINETY_NINE_PACKAGES
 
+    private fun hasActionless99CardMarker(text: String): Boolean =
+        NINETY_NINE_PAYMENT_MARKER.containsMatchIn(text) ||
+            (NINETY_NINE_POP_MARKER.containsMatchIn(text) && NINETY_NINE_PRIORITY_MARKER.containsMatchIn(text))
+
+    private fun actionless99ContextStart(text: String, priceStart: Int): Int {
+        val beforeFare = text.substring(0, priceStart.coerceIn(0, text.length))
+        NINETY_NINE_PAYMENT_MARKER.findAll(beforeFare).lastOrNull()?.let { return it.range.first }
+        val popStart = NINETY_NINE_POP_MARKER.find(beforeFare)?.range?.first
+        val priorityStart = NINETY_NINE_PRIORITY_MARKER.find(beforeFare)?.range?.first
+        return if (popStart != null && priorityStart != null) minOf(popStart, priorityStart) else priceStart
+    }
+
     private fun requestOfferRead(pkg: String, offer: OfferContext) {
         if (noteOfferVisible(pkg, offer)) {
             lastOcrRequestAt = 0L
@@ -394,7 +406,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun extractActionless99Offer(text: String, prices: List<MatchResult>): OfferContext? {
-        if (!NINETY_NINE_CARD_MARKER.containsMatchIn(text)) return null
+        if (!hasActionless99CardMarker(text)) return null
         val candidates = linkedMapOf<String, OfferContext>()
         for (price in prices) {
             val fare = price.groupValues.getOrNull(1)?.toBrazilianDouble() ?: continue
@@ -408,8 +420,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 if (header.groupValues[3].equals("m", ignoreCase = true)) value / 1_000.0 else value
             }
             if (durations.size != 2 || distances.size != 2) continue
-            val markerBeforeFare = NINETY_NINE_CARD_MARKER.findAll(text.substring(0, price.range.first)).lastOrNull()
-            val contextStart = markerBeforeFare?.range?.first ?: price.range.first
+            val contextStart = actionless99ContextStart(text, price.range.first)
             val contextText = text.substring(contextStart, routeEnd).trim()
             val key = "$fare:${distances.joinToString(",")}:${durations.joinToString(",")}"
             candidates[key] = OfferContext(contextText, fare, distances, durations)
@@ -479,7 +490,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
         val fullText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-        val actionless99Card = is99Package(pkg) && NINETY_NINE_CARD_MARKER.containsMatchIn(fullText)
+        val actionless99Card = is99Package(pkg) && hasActionless99CardMarker(fullText)
         if (!OFFER_ACTION.containsMatchIn(fullText) && !actionless99Card) {
             if (manual) showScanMessage("Não identifiquei uma oferta ativa nesta tela; não vou calcular usando a navegação do mapa.", OverlayManager.WARNING)
             return
@@ -600,12 +611,15 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         private const val MAX_OFFER_CONTEXT = 1_200
         private const val OFFER_ABSENCE_RESET_MS = 2_000L
         private val NINETY_NINE_PACKAGES = setOf("com.app99.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver")
-        private val NINETY_NINE_CARD_MARKER = Regex("""\b(dinheiro|pgto\.?\s*no\s*app|negocia)\b""", RegexOption.IGNORE_CASE)
+        private val NINETY_NINE_PAYMENT_MARKER = Regex("""\b(dinheiro|pgto\.?\s*no\s*app|negocia)\b""", RegexOption.IGNORE_CASE)
+        private val NINETY_NINE_POP_MARKER = Regex("""\bpop\s+express(?:o|a)?\b""", RegexOption.IGNORE_CASE)
+        private val NINETY_NINE_PRIORITY_MARKER = Regex("""\bpriorit[aá]ria\b""", RegexOption.IGNORE_CASE)
+        private val NINETY_NINE_CARD_MARKER = Regex("""\b(dinheiro|pgto\.?\s*no\s*app|negocia|pop\s+express(?:o|a)?|priorit[aá]ria)\b""", RegexOption.IGNORE_CASE)
         private val OFFER_ACTION = Regex("""\b(aceitar|aceite|aceito|selecionar|selecione|contraoferta|recusar|rejeitar)\b""", RegexOption.IGNORE_CASE)
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
         private val UNIT_RATE_SUFFIX = Regex("""^\s*(?:/\s*(?:km|h|hr|min|hora)\b|por\s+(?:km|hora|minuto)\b)""", RegexOption.IGNORE_CASE)
         private val INCLUDED_BONUS_SUFFIX = Regex("""^\s*(?:inclu[ií]do|inclu[ií]da|b[oô]nus)\b""", RegexOption.IGNORE_CASE)
-        private val NON_FARE_EXTRA_SUFFIX = Regex("""^\s*(?:por\s+espera(?:\s+longa)?|a\s+mais\s+por\s+corrida|por\s+corrida|inclu[ií]d[oa])\b""", RegexOption.IGNORE_CASE)
+        private val NON_FARE_EXTRA_SUFFIX = Regex("""^\s*(?:por\s+espera(?:\s+longa)?|a\s+mais\s+por\s+corrida|por\s+corrida|inclu[ií]d[oa]|tarifa\s+expresso\s+inclus[oa]|tarifa\s+base\s+din[aâ]mica\s+incl\.?)(?:\b|$)""", RegexOption.IGNORE_CASE)
         private val DISTANCE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*(km|m)\b""", RegexOption.IGNORE_CASE)
         private val MINUTES = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?min""", RegexOption.IGNORE_CASE)
         private val ROUTE_HEADER = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min(?:uto|utos|s)?\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*(km|m)\s*\)""", RegexOption.IGNORE_CASE)
