@@ -175,21 +175,18 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun noteOfferVisible(pkg: String, offer: OfferContext): Boolean {
-        val returningAfterGap = noOfferResetPending
+        // A single missed poll is not an actual gap: cancel the pending reset and keep
+        // the existing result when the same offer returns on the next accessibility pass.
         handler.removeCallbacks(resetOfferStateTask)
         noOfferResetPending = false
         val fingerprint = offerFingerprint(pkg, offer)
-        if (fingerprint == lastVisibleOfferFingerprint && !returningAfterGap) return false
-        // A transition to a different visible offer is a new presentation even if
-        // it happens to have identical fare/route data to one seen moments ago.
-        // Reset the result-level dedupe only on a genuine visible-offer transition.
-        if (fingerprint != lastVisibleOfferFingerprint || returningAfterGap) {
-            lastSignature = ""
-            lastAnnouncedAt = 0L
-        }
+        if (fingerprint == lastVisibleOfferFingerprint) return false
+        lastSignature = ""
+        lastAnnouncedAt = 0L
         lastVisibleOfferFingerprint = fingerprint
         screenGeneration++
-        OverlayManager.prepareForIncomingOffer(this)
+        // Keep the previous card visible until the new result is ready; showOfferResult
+        // replaces it in one UI update, avoiding a clear-then-reopen blink.
         return true
     }
 
@@ -477,12 +474,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         return contexts.values.singleOrNull()?.second
     }
 
-    private fun offerFingerprint(pkg: String, offer: OfferContext): String {
-        val routes = ROUTE.findAll(offer.text).toList()
-        val pickup = routes.getOrNull(0)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
-        val dropoff = routes.getOrNull(1)?.groupValues?.getOrNull(3).orEmpty().cleanRouteText()
-        return listOf(pkg, offer.fare, offer.distancesKm[0], offer.distancesKm[1], offer.durationsMin.sum(), pickup, dropoff).joinToString("|")
-    }
+    private fun offerFingerprint(pkg: String, offer: OfferContext): String =
+        // Street labels and live ETA text can vary between Accessibility and OCR reads
+        // of the same offer. Use its stable fare and two route distances for deduplication.
+        listOf(pkg, offer.fare, offer.distancesKm.getOrNull(0), offer.distancesKm.getOrNull(1)).joinToString("|")
 
     private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
@@ -606,7 +601,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             activeService?.applyMonitoringState()
         }
         private const val MAX_OFFER_CONTEXT = 1_200
-        private const val OFFER_ABSENCE_RESET_MS = 2_000L
+        private const val OFFER_ABSENCE_RESET_MS = 6_000L
         private val NINETY_NINE_PACKAGES = setOf("com.app99.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver")
         private val NINETY_NINE_PAYMENT_MARKER = Regex("""\b(dinheiro|pgto\.?\s*no\s*app|negocia)\b""", RegexOption.IGNORE_CASE)
         private val NINETY_NINE_SERVICE_TYPE_MARKER = Regex("""\b(pop|expresso|expressa|negocia)\b""", RegexOption.IGNORE_CASE)
