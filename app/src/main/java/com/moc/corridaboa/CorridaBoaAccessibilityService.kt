@@ -315,18 +315,24 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     // An extra route header means another trip/route is mixed in: fail closed.
                     if (headers.size != 2) continue
                     durations = headers.mapNotNull { it.groupValues[1].toBrazilianDouble() }
-                    distances = headers.mapNotNull { it.groupValues[2].toBrazilianDouble() }
+                    distances = headers.mapNotNull { header ->
+                        val value = header.groupValues[2].toBrazilianDouble() ?: return@mapNotNull null
+                        if (header.groupValues[3].equals("m", ignoreCase = true)) value / 1_000.0 else value
+                    }
                     if (durations.size != 2 || distances.size != 2) continue
                 } else {
                     // Some versions expose time and distance as separate text nodes.
-                    // Exclude the displayed unit rate (e.g. R$ 1,16/km) from route km.
-                    val distanceMatches = KM.findAll(routeText).filterNot { km ->
-                        val prefix = routeText.substring(0, km.range.first).takeLast(14).trimEnd()
+                    // Handle meters too and exclude the displayed unit rate (e.g. R$1,16/km).
+                    val distanceMatches = DISTANCE.findAll(routeText).filterNot { distance ->
+                        val prefix = routeText.substring(0, distance.range.first).takeLast(14).trimEnd()
                         prefix.endsWith("/") || prefix.endsWith("por", ignoreCase = true)
                     }.toList()
                     val minuteMatches = MINUTES.findAll(routeText).toList()
                     if (distanceMatches.size != 2 || minuteMatches.size != 2) continue
-                    distances = distanceMatches.mapNotNull { it.groupValues[1].toBrazilianDouble() }
+                    distances = distanceMatches.mapNotNull { match ->
+                        val value = match.groupValues[1].toBrazilianDouble() ?: return@mapNotNull null
+                        if (match.groupValues[2].equals("m", ignoreCase = true)) value / 1_000.0 else value
+                    }
                     durations = minuteMatches.mapNotNull { it.groupValues[1].toBrazilianDouble() }
                     if (durations.size != 2 || distances.size != 2) continue
                 }
@@ -499,10 +505,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
         private val UNIT_RATE_SUFFIX = Regex("""^\s*(?:/\s*(?:km|h|hr|min|hora)\b|por\s+(?:km|hora|minuto)\b)""", RegexOption.IGNORE_CASE)
         private val INCLUDED_BONUS_SUFFIX = Regex("""^\s*(?:inclu[ií]do|inclu[ií]da|b[oô]nus)\b""", RegexOption.IGNORE_CASE)
-        private val KM = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?km""", RegexOption.IGNORE_CASE)
+        private val DISTANCE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*(km|m)\b""", RegexOption.IGNORE_CASE)
         private val MINUTES = Regex("""([0-9]+(?:[.,][0-9]+)?)\s?min""", RegexOption.IGNORE_CASE)
-        private val ROUTE_HEADER = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min(?:uto|utos|s)?\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)""", RegexOption.IGNORE_CASE)
-        private val ROUTE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min(?:uto|utos|s)?\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*km\s*\)\s*(.*?)(?=[0-9]+(?:[.,][0-9]+)?\s*min(?:uto|utos|s)?\s*\(\s*[0-9]+(?:[.,][0-9]+)?\s*km\s*\)|$)""", RegexOption.IGNORE_CASE)
+        private val ROUTE_HEADER = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min(?:uto|utos|s)?\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*(km|m)\s*\)""", RegexOption.IGNORE_CASE)
+        private val ROUTE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*min(?:uto|utos|s)?\s*\(\s*([0-9]+(?:[.,][0-9]+)?)\s*(?:km|m)\s*\)\s*(.*?)(?=[0-9]+(?:[.,][0-9]+)?\s*min(?:uto|utos|s)?\s*\(\s*[0-9]+(?:[.,][0-9]+)?\s*(?:km|m)\s*\)|$)""", RegexOption.IGNORE_CASE)
     }
 }
 

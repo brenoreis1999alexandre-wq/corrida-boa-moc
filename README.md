@@ -6,7 +6,7 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 
 - Botão flutuante circular **R$**, arrastável para qualquer posição e com posição salva no aparelho.
 - Botão no painel liga/desliga o monitoramento; ao desligar, a bolha some, e ao ligar, volta.
-- OCR automático só examina Uber Driver, 99 Motorista e inDrive; reconhece ofertas normais e ofertas Uber Radar, cujo botão pode aparecer como **Selecionar**, sem confundir tarifa, taxa por km ou bônus incluídos.
+- OCR automático só examina Uber Driver, 99 Motorista e inDrive; reconhece ofertas normais e Uber Radar (**Selecionar**), além de ofertas Negocia da 99 com distância de busca em metros, convertida para km. Não confunde tarifa, taxa por km ou bônus incluídos.
 - Em Android 11+, lê as linhas visíveis por posição na tela e exclui o cartão e a bolha do próprio RotaLume; não mistura o texto global da Acessibilidade com OCR. Em Android anterior, ancora a leitura na área da ação da oferta.
 - Isola a oferta pelo preço exibido, pelos dois trechos de rota e pelo botão de aceitar, recusar ou selecionar; ignora rotas anteriores ao preço, a taxa por km e o bônus incluído. Se houver trechos extras ou dados ambíguos, não calcula em vez de adivinhar.
 - Ao detectar oferta com dados suficientes, mostra cartão silencioso por até 12 segundos, com botão X para fechar; uma oferta nova interrompe o resultado anterior e entra na fila de leitura imediatamente. A bolha mostra o valor por 10 segundos, além da duração/cor da última recomendação.
