@@ -43,7 +43,13 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val history by lazy { RideHistory(this) }
-    private data class OfferContext(val text: String, val fare: Double, val distancesKm: List<Double>, val durationsMin: List<Double>)
+    private data class OfferContext(
+        val text: String,
+        val fare: Double,
+        val distancesKm: List<Double>,
+        val durationsMin: List<Double>,
+        val displayedPerKm: Double? = null
+    )
     private fun monitoringEnabled() = settings.getBoolean(Prefs.MONITORING_ENABLED, true)
     private val continuousOcrLoop = object : Runnable {
         override fun run() {
@@ -381,8 +387,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     if (durations.size != 2 || distances.size != 2) continue
                 }
                 val contextText = text.substring(price.range.first, action.range.last + 1).trim()
+                val displayedPerKm = ESTIMATED_PER_KM.find(contextText)?.groupValues?.getOrNull(1)?.toBrazilianDouble()
                 val key = "$fare:${distances.joinToString(",")}:${durations.joinToString(",")}"
-                candidates[key] = OfferContext(contextText, fare, distances, durations)
+                candidates[key] = OfferContext(contextText, fare, distances, durations, displayedPerKm)
             }
         }
         // If there is more than one plausible payout/route grouping, do not guess.
@@ -394,7 +401,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     private fun isExcludedPrice(text: String, match: MatchResult): Boolean {
         val suffix = text.substring((match.range.last + 1).coerceAtMost(text.length))
         val prefix = text.substring(0, match.range.first).takeLast(12).trimEnd()
-        return UNIT_RATE_SUFFIX.containsMatchIn(suffix) ||
+        val isEstimatedRate = ESTIMATED_PER_KM.findAll(text).any {
+            it.range.first <= match.range.first && it.range.last >= match.range.last
+        }
+        return isEstimatedRate || UNIT_RATE_SUFFIX.containsMatchIn(suffix) ||
             NON_FARE_EXTRA_SUFFIX.containsMatchIn(suffix) ||
             (prefix.endsWith("+") && INCLUDED_BONUS_SUFFIX.containsMatchIn(suffix))
     }
@@ -524,7 +534,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val profit = fare - totalCosts
         val grossHour = fare / (tempoTotal / 60.0)
         val grossMinute = fare / tempoTotal
-        val grossKm = fare / totalKm
+        val grossKm = if (pkg == "com.ubercab.driver") {
+            offerContext.displayedPerKm?.takeIf { it > 0.0 } ?: (fare / totalKm)
+        } else fare / totalKm
         val profitHour = profit / (tempoTotal / 60.0)
         val profitMinute = profit / tempoTotal
         val profitKm = profit / totalKm
@@ -606,9 +618,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         private val NINETY_NINE_PAYMENT_MARKER = Regex("""\b(dinheiro|pgto\.?\s*no\s*app|negocia)\b""", RegexOption.IGNORE_CASE)
         private val NINETY_NINE_SERVICE_TYPE_MARKER = Regex("""\b(pop|expresso|expressa|negocia)\b""", RegexOption.IGNORE_CASE)
         private val NINETY_NINE_CARD_MARKER = Regex("""\b(dinheiro|pgto\.?\s*no\s*app|negocia|pop|expresso|expressa|priorit[aá]ria)\b""", RegexOption.IGNORE_CASE)
-        private val OFFER_ACTION = Regex("""\b(aceitar|aceite|aceito|selecionar|selecione|contraoferta|recusar|rejeitar)\b""", RegexOption.IGNORE_CASE)
+        private val OFFER_ACTION = Regex("""\b(aceitar|aceite|aceito|selecionar|selecione|contraoferta|recusar|rejeitar|tenho\s+interesse)\b""", RegexOption.IGNORE_CASE)
         private val PRICE = Regex("""R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+(?:\.[0-9]{2})?)""", RegexOption.IGNORE_CASE)
-        private val UNIT_RATE_SUFFIX = Regex("""^\s*(?:/\s*(?:km|h|hr|min|hora)\b|por\s+(?:km|hora|minuto)\b)""", RegexOption.IGNORE_CASE)
+        private val UNIT_RATE_SUFFIX = Regex("""^\s*(?:/\s*(?:k\s*m|h|hr|min|hora)(?:\b|(?=\s*\d+\s*min))|por\s+(?:k\s*m|hora|minuto)\b)""", RegexOption.IGNORE_CASE)
+        private val ESTIMATED_PER_KM = Regex("""\b(?:est|estimad[oa]|estimativ[oa])\.?\s*(?:de\s*)?R\$\s*([0-9]+(?:[.,][0-9]{2})?)\s*(?:/\s*k\s*m|por\s+k\s*m)(?:\b|(?=\s*\d+\s*min))""", RegexOption.IGNORE_CASE)
         private val INCLUDED_BONUS_SUFFIX = Regex("""^\s*(?:inclu[ií]do|inclu[ií]da|b[oô]nus)\b""", RegexOption.IGNORE_CASE)
         private val NON_FARE_EXTRA_SUFFIX = Regex("""^\s*(?:por\s+espera(?:\s+longa)?|a\s+mais\s+por\s+corrida|por\s+corrida|inclu[ií]d[oa]|tarifa\s+expresso\s+inclus[oa]|tarifa\s+base\s+din[aâ]mica\s+incl\.?)(?:\b|$)""", RegexOption.IGNORE_CASE)
         private val DISTANCE = Regex("""([0-9]+(?:[.,][0-9]+)?)\s*(km|m)\b""", RegexOption.IGNORE_CASE)

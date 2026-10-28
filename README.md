@@ -14,8 +14,9 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - A leitura automática por Acessibilidade dos apps de motorista continua ativa.
 - Apps monitorados: Uber Driver, 99 Motorista e inDrive.
 - A recomendação é informativa e silenciosa; o app não aceita nem recusa corridas e não fala por voz.
-- Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo.
-- Painel resume as ofertas analisadas. Os valores são estimativas de ofertas, não comprovantes de corridas realizadas.
+- Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo, com carregamento gradual das ofertas para manter a tela responsiva.
+- Uber: quando o cartão mostra “Est. de R$/km”, o app usa essa estimativa; em cartões antigos, calcula pela tarifa dividida pela soma da busca e da viagem. Sem mudar o cálculo já validado da 99.
+- Painel e somas do histórico desconsideram leituras iguais da mesma oferta em até 3 minutos; os valores são estimativas de ofertas, não comprovantes de corridas realizadas.
 - Calculadora de ganhos: estima combustível, aluguel/financiamento e outros custos mensais informados por km, e calcula uma meta bruta ideal; os custos mensais são distribuídos pelos km planejados para o mês.
 - Ajustes de gasolina, consumo e critérios; o custo por km de combustível é calculado a partir dos dados informados.
 - O app não toca em botões, aceita ou recusa corridas.

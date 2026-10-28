@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private var overlayStatusLabel: TextView? = null
     private var selectedTab = 0
     private var historyFilter = 1 // current month
+    private var historyVisibleCount = 20
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
 
     private val bg = Color.rgb(13, 19, 36)
@@ -125,9 +126,8 @@ class MainActivity : Activity() {
 
     private fun dashboardPage(): View {
         val content = vertical()
-        val records = RideHistory(this).latest(1000)
         val todayStart = startOfToday()
-        val todays = records.filter { it.createdAt >= todayStart }
+        val todays = uniqueRecentOffers(RideHistory(this).between(todayStart, startOfTomorrow()))
         val gross = todays.sumOf { it.fare }
         val net = todays.sumOf { it.net }
         val km = todays.sumOf { it.pickupKm + it.tripKm }
@@ -172,7 +172,7 @@ class MainActivity : Activity() {
         )))
         dailyCard.addView(space(7))
         dailyCard.addView(label("Tempo das ofertas: ${minutes.oneDecimal()} min", 12, secondary))
-        dailyCard.addView(label("Estimativa das ofertas analisadas; não confirma corridas realizadas.", 11, secondary))
+        dailyCard.addView(label("Estimativa das ofertas analisadas, não corridas feitas; repetições em até 3 min não contam duas vezes.", 11, secondary))
         content.addView(dailyCard)
         content.addView(space(10))
         val calcCard = card()
@@ -220,6 +220,7 @@ class MainActivity : Activity() {
         listOf("Hoje", "Este mês", "Tudo").forEachIndexed { index, title ->
             val chip = actionButton(title) {
                 historyFilter = index
+                historyVisibleCount = 20
                 renderTab()
             }
             chip.textSize = 12f
@@ -230,13 +231,13 @@ class MainActivity : Activity() {
         content.addView(filters)
         content.addView(space(10))
 
-        val allRecords = RideHistory(this).latest(1000)
-        val now = System.currentTimeMillis()
-        val filtered = when (historyFilter) {
-            0 -> allRecords.filter { it.createdAt >= startOfToday() }
-            1 -> allRecords.filter { it.createdAt >= startOfMonth() }
-            else -> allRecords
+        val history = RideHistory(this)
+        val filteredRaw = when (historyFilter) {
+            0 -> history.between(startOfToday(), startOfTomorrow())
+            1 -> history.between(startOfMonth(), startOfTomorrow())
+            else -> history.all()
         }
+        val filtered = uniqueRecentOffers(filteredRaw)
         val stats = card()
         stats.addView(label("LUCRO ESTIMADO DAS OFERTAS", 12, accent, true))
         stats.addView(label(filtered.sumOf { it.net }.money(), 29, pale, true))
@@ -246,6 +247,7 @@ class MainActivity : Activity() {
             "TEMPO" to "${filtered.sumOf { it.minutes }.oneDecimal()} min"
         )))
         content.addView(stats)
+        content.addView(label("Leituras repetidas da mesma oferta em até 3 min não entram duas vezes nas somas.", 11, secondary))
         content.addView(space(8))
         content.addView(actionButton("Apagar histórico") {
             AlertDialog.Builder(this)
@@ -268,9 +270,33 @@ class MainActivity : Activity() {
             empty.addView(label("Quando uma oferta compatível aparecer, ela será registrada aqui.", 13, secondary))
             content.addView(empty)
         } else {
-            filtered.forEach { content.addView(recordCard(it)); content.addView(space(8)) }
+            filtered.take(historyVisibleCount).forEach { content.addView(recordCard(it)); content.addView(space(8)) }
+            if (filtered.size > historyVisibleCount) {
+                content.addView(actionButton("Carregar mais 20 ofertas") {
+                    historyVisibleCount += 20
+                    renderTab()
+                }.apply {
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(surface2)
+                    setTextColor(pale)
+                })
+            }
         }
         return scroll(content)
+    }
+
+    private fun uniqueRecentOffers(records: List<RideRecord>): List<RideRecord> {
+        val lastSeen = HashMap<String, Long>()
+        return records.sortedByDescending { it.createdAt }.filter { record ->
+            val key = listOf(
+                String.format(Locale.US, "%.2f", record.fare),
+                String.format(Locale.US, "%.1f", record.pickupKm),
+                String.format(Locale.US, "%.1f", record.tripKm),
+                record.pickup.trim().lowercase(Locale.ROOT).replace(Regex("""\s+"""), " "),
+                record.dropoff.trim().lowercase(Locale.ROOT).replace(Regex("""\s+"""), " ")
+            ).joinToString("|")
+            val previous = lastSeen.put(key, record.createdAt)
+            previous == null || previous - record.createdAt >= 180_000L
+        }
     }
 
     private fun calculatorPage(): View {
@@ -569,6 +595,11 @@ class MainActivity : Activity() {
 
     private fun startOfToday(): Long = Calendar.getInstance().apply {
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private fun startOfTomorrow(): Long = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        add(Calendar.DAY_OF_YEAR, 1)
     }.timeInMillis
 
     private fun startOfMonth(): Long = Calendar.getInstance().apply {
