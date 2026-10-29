@@ -78,19 +78,30 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             if (!monitoringEnabled()) return
             val root = rootInActiveWindow
             val pkg = root?.packageName?.toString()
-            if (pkg != null && is99Package(pkg)) {
+            if (pkg != null && (is99Package(pkg) || pkg == UBER_DRIVER_PACKAGE)) {
+                val is99 = is99Package(pkg)
                 val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-                val offer = extractOfferContextFromNode(root, allowActionless99 = true)
-                    ?: extractOfferContext(treeText, allowActionless99 = true)
+                val offer = extractOfferContextFromNode(root, allowActionless99 = is99)
+                    ?: extractOfferContext(treeText, allowActionless99 = is99)
                 if (offer != null) {
                     noteOfferVisible(pkg, offer)
                     analyzeScreen(pkg, offer.text, manual = false)
                 } else {
-                    if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
+                    // Uber can leave Accessibility quiet while the driver is paused or returns
+                    // to the app. Treat a missing parsed card as a gap so the next identical
+                    // offer is eligible for a fresh analysis, and OCR the visible screen.
+                    if (is99 || pkg == UBER_DRIVER_PACKAGE ||
+                        (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText))) {
+                        noteNoOfferVisible()
+                    }
                     captureVisibleScreen(manual = false, sourcePackage = pkg)
                 }
             }
-            handler.postDelayed(this, if (pkg != null && is99Package(pkg)) 1_200L else 2_000L)
+            handler.postDelayed(this, when {
+                pkg != null && is99Package(pkg) -> 1_200L
+                pkg == UBER_DRIVER_PACKAGE -> 2_500L
+                else -> 2_000L
+            })
         }
     }
 
@@ -197,12 +208,13 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun noteNoOfferVisible() {
-        handler.removeCallbacks(resetOfferStateTask)
+        // Start one absence timer and let it expire. Resetting it on every quiet poll
+        // meant it could never fire while the driver app remained open with no offer.
         if (!noOfferResetPending) {
             noOfferResetPending = true
             screenGeneration++
+            handler.postDelayed(resetOfferStateTask, OFFER_ABSENCE_RESET_MS)
         }
-        handler.postDelayed(resetOfferStateTask, OFFER_ABSENCE_RESET_MS)
     }
 
     private fun rereadCurrentOffer() {

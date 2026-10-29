@@ -16,6 +16,7 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - A recomendação é informativa e silenciosa; o app não aceita nem recusa corridas e não fala por voz.
 - Histórico local com data, origem/destino quando a tela disponibiliza, tarifa, km, tempo e recomendação; filtros por hoje, mês e tudo, com carregamento gradual das ofertas para manter a tela responsiva.
 - Uber: quando o cartão mostra “Est. de R$/km”, o app usa essa estimativa; em cartões antigos, calcula pela tarifa dividida pela soma da busca e da viagem. Sem mudar o cálculo já validado da 99.
+- Leitura ativa da oferta mesmo depois de longas pausas: verifica novamente a Uber e faz OCR local da tela quando a árvore de Acessibilidade não encontra o cartão. Após um intervalo sem oferta, permite recalcular uma oferta igual que reapareça, mantendo a proteção contra leituras duplicadas em sequência.
 - Painel e somas do histórico desconsideram leituras iguais da mesma oferta em até 3 minutos; os valores são estimativas de ofertas, não comprovantes de corridas realizadas.
 - Calculadora de ganhos: estima combustível, aluguel/financiamento e outros custos mensais informados por km, e calcula uma meta bruta ideal; os custos mensais são distribuídos pelos km planejados para o mês.
 - Ajustes de gasolina, consumo e critérios; o custo por km de combustível é calculado a partir dos dados informados.
