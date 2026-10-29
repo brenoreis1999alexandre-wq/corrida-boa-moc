@@ -445,6 +445,16 @@ internal object OverlayManager {
         }
     }
 
+    fun clearOfferResult(service: AccessibilityService) {
+        handler.post {
+            clearBubblePrice()
+            bubbleStatus = null
+            bubbleDuration = ""
+            removeResult()
+            renderBubble(service)
+        }
+    }
+
     private fun clearBubblePrice() {
         bubblePriceResetTask?.let { handler.removeCallbacks(it) }
         bubblePriceResetTask = null

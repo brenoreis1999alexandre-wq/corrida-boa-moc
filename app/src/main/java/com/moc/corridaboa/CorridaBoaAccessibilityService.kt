@@ -23,6 +23,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     private var lastSignature = ""
     private var lastAnnouncedAt = 0L
     private var lastVisibleOfferFingerprint = ""
+    private var observedDriverPackage: String? = null
     private var noOfferResetPending = false
     private var screenGeneration = 0
     private var screenshotInFlight = false
@@ -56,6 +57,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             if (!monitoringEnabled() || !settings.getBoolean(Prefs.OCR_CONTINUOUS, false)) return
             val root = rootInActiveWindow
             val activePackage = root?.packageName?.toString()
+            observeDriverPackage(activePackage)
             if (activePackage != null && activePackage in supportedPackages) {
                 val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
                 val is99 = is99Package(activePackage)
@@ -78,6 +80,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             if (!monitoringEnabled()) return
             val root = rootInActiveWindow
             val pkg = root?.packageName?.toString()
+            observeDriverPackage(pkg)
             if (pkg != null && (is99Package(pkg) || pkg == "com.ubercab.driver")) {
                 val is99 = is99Package(pkg)
                 val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
@@ -136,6 +139,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!monitoringEnabled()) return
         val pkg = event?.packageName?.toString() ?: return
+        observeDriverPackage(pkg)
         if (pkg !in supportedPackages) {
             if (pkg != packageName) lastSignature = ""
             return
@@ -144,6 +148,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
         }
         val root = rootInActiveWindow
+        if (root?.packageName?.toString() != pkg) return
         val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         val is99 = is99Package(pkg)
         val treeOffer = extractOfferContextFromNode(root, allowActionless99 = is99)
@@ -167,6 +172,25 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun is99Package(pkg: String): Boolean = pkg in NINETY_NINE_PACKAGES
+
+    private fun observeDriverPackage(pkg: String?) {
+        if (pkg == null || pkg !in supportedPackages) return
+        val previous = observedDriverPackage
+        if (previous != null && previous != pkg) {
+            // An offer capture started in one driver app must never be combined with
+            // the visible screen from a different app (e.g. Uber fare + 99 route).
+            screenGeneration++
+            pendingCapture = null
+            lastOcrRequestAt = 0L
+            lastSignature = ""
+            lastAnnouncedAt = 0L
+            lastVisibleOfferFingerprint = ""
+            handler.removeCallbacks(resetOfferStateTask)
+            noOfferResetPending = false
+            OverlayManager.clearOfferResult(this)
+        }
+        observedDriverPackage = pkg
+    }
 
     private fun hasActionless99CardMarker(text: String): Boolean =
         NINETY_NINE_PAYMENT_MARKER.containsMatchIn(text) || NINETY_NINE_SERVICE_TYPE_MARKER.containsMatchIn(text)
@@ -305,10 +329,14 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                                 .joinToString(" ") { it.text }
                                 .replace(Regex("""\s+"""), " ").trim()
                             bitmap.recycle()
-                            if (requestGeneration == screenGeneration) {
-                                // Parse only OCR lines visible outside our own overlays. Do not
-                                // merge the flattened Accessibility tree back in: it can mix the
-                                // active trip route with the incoming offer card.
+                            val visiblePackageNow = rootInActiveWindow?.packageName?.toString()
+                            val packageStillMatches = observedDriverPackage == sourcePackage &&
+                                visiblePackageNow == sourcePackage
+                            if (requestGeneration == screenGeneration && packageStillMatches) {
+                                // Parse only OCR lines visible outside our own overlays and only
+                                // while the same driver app that requested the screenshot remains
+                                // foreground. This prevents an Uber price being paired with a 99 route,
+                                // or vice versa, when the user switches apps during an OCR pass.
                                 val exactOffer = extractOfferContext(visibleText, allowActionless99 = is99Package(sourcePackage))
                                 if (exactOffer != null) {
                                     noteOfferVisible(sourcePackage, exactOffer)
