@@ -78,7 +78,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             if (!monitoringEnabled()) return
             val root = rootInActiveWindow
             val pkg = root?.packageName?.toString()
-            if (pkg != null && (is99Package(pkg) || pkg == UBER_DRIVER_PACKAGE)) {
+            if (pkg != null && (is99Package(pkg) || pkg == "com.ubercab.driver")) {
                 val is99 = is99Package(pkg)
                 val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
                 val offer = extractOfferContextFromNode(root, allowActionless99 = is99)
@@ -90,7 +90,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     // Uber can leave Accessibility quiet while the driver is paused or returns
                     // to the app. Treat a missing parsed card as a gap so the next identical
                     // offer is eligible for a fresh analysis, and OCR the visible screen.
-                    if (is99 || pkg == UBER_DRIVER_PACKAGE ||
+                    if (is99 || pkg == "com.ubercab.driver" ||
                         (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText))) {
                         noteNoOfferVisible()
                     }
@@ -99,7 +99,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             }
             handler.postDelayed(this, when {
                 pkg != null && is99Package(pkg) -> 1_200L
-                pkg == UBER_DRIVER_PACKAGE -> 2_500L
+                pkg == "com.ubercab.driver" -> 2_500L
                 else -> 2_000L
             })
         }
