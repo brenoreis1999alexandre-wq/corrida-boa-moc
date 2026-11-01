@@ -11,8 +11,8 @@ android {
         applicationId = "com.moc.corridaboa"
         minSdk = 26
         targetSdk = 35
-        versionCode = 34
-        versionName = "1.7.19"
+        versionCode = 37
+        versionName = "1.8.1"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -23,4 +23,6 @@ android {
 
 dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("androidx.core:core-ktx:1.15.0")
 }

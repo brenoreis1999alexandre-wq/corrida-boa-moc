@@ -29,11 +29,13 @@ internal object OverlayManager {
     private const val POS_X = "bubble_position_x"
     private const val POS_Y = "bubble_position_y"
     private const val RESULT_VISIBLE_MS = 12_000L
+    private const val DECISION_VISIBLE_MS = 45_000L
     private const val BUBBLE_PRICE_VISIBLE_MS = 10_000L
     private var windowManager: WindowManager? = null
     private var bubbleView: TextView? = null
     private var resultView: LinearLayout? = null
     private var closeView: TextView? = null
+    private var decisionView: LinearLayout? = null
     private var bubbleStatus: Int? = null
     private var bubbleDuration = ""
     private var bubblePrice = ""
@@ -183,6 +185,7 @@ internal object OverlayManager {
 
     fun show(service: AccessibilityService, message: String, status: Int) {
         handler.post {
+            decisionView = null
             val accent = statusColor(status)
             val card = baseResultCard(service, accent)
             val lines = message.lines()
@@ -221,7 +224,9 @@ internal object OverlayManager {
         kmStatus: Int,
         hourStatus: Int,
         minuteStatus: Int,
-        status: Int
+        status: Int,
+        smartNote: String? = null,
+        onUserDecision: ((Boolean) -> Unit)? = null
     ) {
         handler.post {
             bubbleStatus = status
@@ -333,8 +338,50 @@ internal object OverlayManager {
                 metrics.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             card.addView(metrics)
+            if (!smartNote.isNullOrBlank()) {
+                card.addView(TextView(service).apply {
+                    text = smartNote
+                    textSize = 12f
+                    setTextColor(Color.rgb(190, 220, 255))
+                    setPadding(0, dp(service, 6), 0, 0)
+                    gravity = Gravity.CENTER
+                })
+            }
             card.contentDescription = "$decision. Oferta $offerAmount, custos $totalCostsAmount, lucro estimado $profitAmount; valores brutos $grossPerKm por km, $grossPerHour por hora e $grossPerMinute por minuto"
-            attachResult(service, card)
+            var decisionButtonsForOverlay: LinearLayout? = null
+            if (onUserDecision != null) {
+                val decisionButtons = LinearLayout(service).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(service, 7), 0, 0)
+                }
+                fun choiceButton(title: String, accepted: Boolean, color: Int): TextView = TextView(service).apply {
+                    text = title
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    background = GradientDrawable().apply {
+                        setColor(color)
+                        cornerRadius = dp(service, 10).toFloat()
+                    }
+                    setPadding(dp(service, 10), dp(service, 9), dp(service, 10), dp(service, 9))
+                    setOnClickListener {
+                        onUserDecision(accepted)
+                        decisionView?.let { row ->
+                            for (index in 0 until row.childCount) row.getChildAt(index).isEnabled = false
+                        }
+                        decisionView?.let { row ->
+                            (row.parent as? ViewGroup)?.removeView(row)
+                        }
+                        decisionView = null
+                    }
+                }
+                decisionButtons.addView(choiceButton("✓ Aceitei", true, Color.rgb(0, 139, 92)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(service, 6) })
+                decisionButtons.addView(choiceButton("✕ Recusei", false, Color.rgb(164, 44, 55)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                decisionButtonsForOverlay = decisionButtons
+            }
+            attachResult(service, card, decisionButtonsForOverlay)
         }
     }
 
@@ -356,14 +403,16 @@ internal object OverlayManager {
         else -> Color.rgb(117, 176, 255)
     }
 
-    private fun attachResult(service: AccessibilityService, card: LinearLayout) {
+    private fun attachResult(service: AccessibilityService, card: LinearLayout, decisionButtons: LinearLayout? = null) {
         removeResult()
         val wm = service.getSystemService(AccessibilityService.WINDOW_SERVICE) as WindowManager
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                (if (decisionButtons != null) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -376,6 +425,7 @@ internal object OverlayManager {
             wm.addView(card, params)
             windowManager = wm
             resultView = card
+            decisionView = decisionButtons
             val close = TextView(service).apply {
                 text = "×"
                 textSize = 25f
@@ -409,7 +459,13 @@ internal object OverlayManager {
                 // The result card is still useful if the optional close overlay cannot be added.
             }
             handler.removeCallbacks(removeResultTask)
-            handler.postDelayed(removeResultTask, RESULT_VISIBLE_MS)
+            if (decisionButtons != null) {
+                handler.removeCallbacks(removeResultTask)
+                handler.postDelayed(removeResultTask, DECISION_VISIBLE_MS)
+            } else {
+                handler.removeCallbacks(removeResultTask)
+                handler.postDelayed(removeResultTask, RESULT_VISIBLE_MS)
+            }
         } catch (_: Exception) {
             removeResult()
         }
@@ -482,6 +538,7 @@ internal object OverlayManager {
         handler.removeCallbacks(removeResultTask)
         try { closeView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
         closeView = null
+        decisionView = null
         try { resultView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
         resultView = null
     }

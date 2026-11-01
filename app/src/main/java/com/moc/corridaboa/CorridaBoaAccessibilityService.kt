@@ -44,6 +44,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     )
     private val settings by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
     private val history by lazy { RideHistory(this) }
+    private val decisionHistory by lazy { SmartDecisionHistory(this) }
     private data class OfferContext(
         val text: String,
         val fare: Double,
@@ -149,6 +150,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
         val root = rootInActiveWindow
         if (root?.packageName?.toString() != pkg) return
+        // For video-recognized Uber cards the outer snapshot may contain accessibility
+        // labels from a different offer/platform. Rebuild the offer only from visible OCR
+        // and require the foreground package to stay the same before scoring.
         val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         val is99 = is99Package(pkg)
         val treeOffer = extractOfferContextFromNode(root, allowActionless99 = is99)
@@ -157,7 +161,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             // The 99 card has route/payment text in Accessibility but may omit an accept button;
             // use its isolated card subtree directly instead of requiring a screen capture.
             noteOfferVisible(pkg, treeOffer)
-            analyzeScreen(pkg, treeOffer.text, manual = false)
+            analyzeScreen(pkg, treeOffer.text, manual = false, demandRawText = treeText)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && treeOffer != null) {
             requestOfferRead(pkg, treeOffer)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -165,13 +169,22 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             captureVisibleScreen(manual = false, sourcePackage = pkg)
         } else if (treeOffer != null) {
             noteOfferVisible(pkg, treeOffer)
-            analyzeScreen(pkg, treeOffer.text, manual = false)
+            analyzeScreen(pkg, treeOffer.text, manual = false, demandRawText = treeText)
         } else if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) {
             noteNoOfferVisible()
         }
     }
 
     private fun is99Package(pkg: String): Boolean = pkg in NINETY_NINE_PACKAGES
+
+    private fun neighborhoodKey(address: String): String {
+        val knownAreas = listOf(
+            "Major Prates", "Ibituruna", "São José", "Unimontes", "Delfino Magalhães",
+            "Canelas", "Jardim São Luiz", "Centro", "Rodoviária", "Hospital"
+        )
+        return knownAreas.firstOrNull { area -> address.contains(area, ignoreCase = true) }
+            ?: "Destino não identificado"
+    }
 
     private fun observeDriverPackage(pkg: String?) {
         if (pkg == null || pkg !in supportedPackages) return
@@ -333,14 +346,12 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                             val packageStillMatches = observedDriverPackage == sourcePackage &&
                                 visiblePackageNow == sourcePackage
                             if (requestGeneration == screenGeneration && packageStillMatches) {
-                                // Parse only OCR lines visible outside our own overlays and only
-                                // while the same driver app that requested the screenshot remains
-                                // foreground. This prevents an Uber price being paired with a 99 route,
-                                // or vice versa, when the user switches apps during an OCR pass.
+                                // Keep the whole visual OCR text for optional Uber trend-map signals,
+                                // but parse the offer only within its own exact card context.
                                 val exactOffer = extractOfferContext(visibleText, allowActionless99 = is99Package(sourcePackage))
                                 if (exactOffer != null) {
                                     noteOfferVisible(sourcePackage, exactOffer)
-                                    analyzeScreen(sourcePackage, exactOffer.text, manual)
+                                    analyzeScreen(sourcePackage, exactOffer.text, manual, demandRawText = visibleText)
                                 } else {
                                     if (!OFFER_ACTION.containsMatchIn(visibleText) && !PRICE.containsMatchIn(visibleText)) noteNoOfferVisible()
                                     if (manual && visibleText.isNotBlank()) {
@@ -529,9 +540,11 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         // of the same offer. Use its stable fare and two route distances for deduplication.
         listOf(pkg, offer.fare, offer.distancesKm.getOrNull(0), offer.distancesKm.getOrNull(1)).joinToString("|")
 
-    private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean) {
+    private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean, demandRawText: String = rawText) {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
         val fullText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+        val demandText = demandRawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
+        val demandSignal = if (pkg == "com.ubercab.driver") UberDemandSignal.summarize(demandText) else null
         val actionless99Card = is99Package(pkg) && hasActionless99CardMarker(fullText)
         if (!OFFER_ACTION.containsMatchIn(fullText) && !actionless99Card) {
             if (manual) showScanMessage("Não identifiquei uma oferta ativa nesta tela; não vou calcular usando a navegação do mapa.", OverlayManager.WARNING)
@@ -592,6 +605,49 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             acceptableMetrics >= 2 -> OverlayManager.MAYBE
             else -> OverlayManager.BAD
         }
+        val smartMode = settings.getBoolean(Prefs.INTELLIGENT_MODE, false)
+        val destinationArea = neighborhoodKey(dropoff)
+        val hourOfDay = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val learning = if (smartMode) runCatching {
+            decisionHistory.destinationLearning(destinationArea, hourOfDay)
+        }.getOrNull() else null
+        val smartNote = if (!smartMode) demandSignal else {
+            val stay = runCatching { decisionHistory.observedStaySummary(destinationArea) }.getOrNull()
+            val historyNote = if (learning == null) {
+                "Sem histórico suficiente de escolhas neste destino/horário."
+            } else {
+                "Neste destino/horário: ${learning.accepted} aceitas e ${learning.rejected} recusadas; lucro estimado médio das aceitas ${learning.acceptedProfitAverage.money()}."
+            }
+            val stayNote = if (stay == null) " Ainda não há registro de paradas observado neste bairro."
+                else " Foram observadas ${stay.first} parada(s), média de ${stay.second.toInt()} min; isso não confirma fim de corrida."
+            val demandNote = demandSignal?.let { " $it" }.orEmpty()
+            val returnPattern = runCatching { decisionHistory.observedReturnSummary(destinationArea, hourOfDay, System.currentTimeMillis()) }.getOrNull()
+            val returnNote = if (returnPattern == null) {
+                " Ainda não há amostra suficiente para estimar retorno nesse destino e horário."
+            } else {
+                " Em ${returnPattern.first} observações locais, a parada média ocorreu após ${returnPattern.third.toInt()} min; ${returnPattern.second.toInt()}% tiveram parada detectada na região de destino até 4 h depois. É padrão observado, não garantia de nova corrida."
+            }
+            "$historyNote$stayNote$demandNote$returnNote"
+        }
+        val decisionHandler: ((Boolean) -> Unit)? = if (smartMode) { accepted ->
+            runCatching {
+                val decisionAt = System.currentTimeMillis()
+                decisionHistory.saveDecision(
+                    decisionAt, pkg, fare, pickup, destinationArea, totalKm, tempoTotal, profit, accepted
+                )
+                if (accepted) {
+                    settings.edit().putLong(Prefs.SMART_ACCEPTED_AT, decisionAt)
+                        .putString(Prefs.SMART_DESTINATION, destinationArea).apply()
+                    val tracking = Intent(this, SmartTrackingService::class.java)
+                        .setAction(SmartTrackingService.ACTION_ACCEPTED)
+                        .putExtra(SmartTrackingService.EXTRA_ACCEPTED_AT, decisionAt)
+                        .putExtra(SmartTrackingService.EXTRA_DESTINATION, destinationArea)
+                    try {
+                        if (Build.VERSION.SDK_INT >= 26) startForegroundService(tracking) else startService(tracking)
+                    } catch (_: Exception) { }
+                }
+            }
+        } else null
         val signature = offerFingerprint(pkg, offerContext)
         val now = System.currentTimeMillis()
         val duplicate = signature == lastSignature && now - lastAnnouncedAt < 180_000
@@ -608,7 +664,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         OverlayManager.showOfferResult(
             this, fare.money(), fuelCost.money(), monthlyCost.money(), totalCosts.money(), profit.money(),
             totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(), grossHour.money(), grossMinute.money(),
-            kmStatus, hourStatus, minuteStatus, status
+            kmStatus, hourStatus, minuteStatus, status,
+            smartNote = smartNote,
+            onUserDecision = decisionHandler
         )
     }
 

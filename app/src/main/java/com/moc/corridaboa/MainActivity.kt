@@ -1,7 +1,9 @@
 package com.moc.corridaboa
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.pm.PackageManager
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
@@ -42,6 +44,8 @@ class MainActivity : Activity() {
     private var selectedTab = 0
     private var historyFilter = 1 // current month
     private var historyVisibleCount = 20
+    private var locationPermissionRequested = false
+    private var pendingLocationPermissionToggle = false
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
 
     private val bg = Color.rgb(13, 19, 36)
@@ -71,6 +75,18 @@ class MainActivity : Activity() {
         super.onResume()
         if (!::pageHost.isInitialized) return
         if (selectedTab == 0) renderTab()
+        if (prefs.getBoolean(Prefs.INTELLIGENT_MODE, false) || pendingLocationPermissionToggle || prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)) {
+            if (hasForegroundLocationPermission() && hasBackgroundLocationPermission()) {
+                val wasPending = pendingLocationPermissionToggle || prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)
+                if (wasPending) prefs.edit().putBoolean(Prefs.INTELLIGENT_MODE, true).putBoolean(Prefs.SMART_ENABLE_PENDING, false).apply()
+                pendingLocationPermissionToggle = false
+                startSmartTracking()
+                if (wasPending) renderTab()
+            } else if (pendingLocationPermissionToggle || prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)) {
+                locationPermissionRequested = false
+                ensureLocationPermissions()
+            }
+        }
         accessStatusLabel?.text = "Acessibilidade: ${if (isServiceEnabled()) "ativada" else "pendente"}"
         overlayStatusLabel?.text = "Janela flutuante: ${if (Settings.canDrawOverlays(this)) "permitida" else "pendente"}"
     }
@@ -126,6 +142,35 @@ class MainActivity : Activity() {
 
     private fun dashboardPage(): View {
         val content = vertical()
+        val intelligentMode = prefs.getBoolean(Prefs.INTELLIGENT_MODE, false)
+        val modeCard = card()
+        modeCard.addView(label("MODO INTELIGENTE • MONTES CLAROS", 14, accent, true))
+        modeCard.addView(label("Registra suas escolhas e padrões de paradas observadas por GPS. O mapa da Uber pode mostrar tendências quando o texto estiver legível; não garante demanda nem confirma fim da viagem.", 12, secondary))
+        modeCard.addView(actionButton(if (intelligentMode) "Modo Inteligente: LIGADO" else "Modo Inteligente: DESLIGADO") {
+            val next = !prefs.getBoolean(Prefs.INTELLIGENT_MODE, false)
+            if (next) {
+                if (!hasForegroundLocationPermission()) {
+                    prefs.edit().putBoolean(Prefs.SMART_ENABLE_PENDING, true).apply()
+                    pendingLocationPermissionToggle = true
+                    requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_LOCATION)
+                    locationPermissionRequested = true
+                    return@actionButton
+                }
+                if (!hasBackgroundLocationPermission() && android.os.Build.VERSION.SDK_INT >= 29) {
+                    prefs.edit().putBoolean(Prefs.SMART_ENABLE_PENDING, true).apply()
+                    pendingLocationPermissionToggle = true
+                    locationPermissionRequested = false
+                    ensureLocationPermissions()
+                    return@actionButton
+                }
+            }
+            prefs.edit().putBoolean(Prefs.SMART_ENABLE_PENDING, false).putBoolean(Prefs.INTELLIGENT_MODE, next).apply()
+            if (next) startSmartTracking() else stopSmartTracking()
+            Toast.makeText(this, if (next) "Modo Inteligente ligado" else "Modo Inteligente desligado", Toast.LENGTH_SHORT).show()
+            renderTab()
+        })
+        content.addView(modeCard)
+        content.addView(space(9))
         val todayStart = startOfToday()
         val todays = uniqueRecentOffers(RideHistory(this).between(todayStart, startOfTomorrow()))
         val gross = todays.sumOf { it.fare }
@@ -585,6 +630,76 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(1, dp(height))
     }
 
+    private fun hasForegroundLocationPermission(): Boolean =
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasBackgroundLocationPermission(): Boolean =
+        android.os.Build.VERSION.SDK_INT < 29 || checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun ensureLocationPermissions() {
+        if (locationPermissionRequested) return
+        locationPermissionRequested = true
+        if (!hasForegroundLocationPermission()) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_LOCATION)
+        } else if (!hasBackgroundLocationPermission() && android.os.Build.VERSION.SDK_INT >= 29) {
+            AlertDialog.Builder(this)
+                .setTitle("Permitir localização em segundo plano")
+                .setMessage("O Modo Inteligente usa sua localização para registrar deslocamentos e paradas enquanto você trabalha. No Android 11 ou mais recente, toque em Permitir localização e depois escolha Permitir o tempo todo nas configurações do app.")
+                .setNegativeButton("Agora não") { _, _ ->
+                    if (!hasBackgroundLocationPermission()) {
+                        pendingLocationPermissionToggle = false
+                        prefs.edit().putBoolean(Prefs.SMART_ENABLE_PENDING, false).putBoolean(Prefs.INTELLIGENT_MODE, false).apply()
+                        if (::pageHost.isInitialized) renderTab()
+                    }
+                }
+                .setPositiveButton("Abrir permissões") { _, _ ->
+                    try {
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                    } catch (_: Exception) {
+                        requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQUEST_BACKGROUND_LOCATION)
+                    }
+                }.show()
+        } else startSmartTracking()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_LOCATION && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
+            if (hasBackgroundLocationPermission()) {
+                val enable = prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)
+                prefs.edit().putBoolean(Prefs.INTELLIGENT_MODE, enable).putBoolean(Prefs.SMART_ENABLE_PENDING, false).apply()
+                pendingLocationPermissionToggle = false
+                if (enable) startSmartTracking()
+                if (::pageHost.isInitialized) renderTab()
+            } else {
+                locationPermissionRequested = false
+                ensureLocationPermissions()
+            }
+        } else if (requestCode == REQUEST_BACKGROUND_LOCATION && hasBackgroundLocationPermission()) {
+            val enable = prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)
+            prefs.edit().putBoolean(Prefs.INTELLIGENT_MODE, enable).putBoolean(Prefs.SMART_ENABLE_PENDING, false).apply()
+            pendingLocationPermissionToggle = false
+            if (enable) startSmartTracking()
+        } else if (requestCode == REQUEST_LOCATION || requestCode == REQUEST_BACKGROUND_LOCATION) {
+            prefs.edit().putBoolean(Prefs.INTELLIGENT_MODE, false).putBoolean(Prefs.SMART_ENABLE_PENDING, false).apply()
+            Toast.makeText(this, "Sem localização, o Modo Inteligente não acompanha deslocamentos. O cálculo de ofertas continua disponível.", Toast.LENGTH_LONG).show()
+            if (::pageHost.isInitialized) renderTab()
+        }
+    }
+
+    private fun startSmartTracking() {
+        if (!hasForegroundLocationPermission()) return
+        val intent = Intent(this, SmartTrackingService::class.java).setAction(SmartTrackingService.ACTION_START)
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
+        } catch (_: Exception) { }
+    }
+
+    private fun stopSmartTracking() {
+        stopService(Intent(this, SmartTrackingService::class.java).setAction(SmartTrackingService.ACTION_STOP))
+    }
+
     private fun isServiceEnabled(): Boolean {
         val expected = ComponentName(this, CorridaBoaAccessibilityService::class.java)
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
@@ -627,4 +742,13 @@ internal object Prefs {
     const val MONTHLY_KM = "monthly_distance_km"
     const val CALC_GOAL_PER_KM = "calculator_goal_per_km"
     const val OCR_CONTINUOUS = "ocr_continuous"
+    const val INTELLIGENT_MODE = "intelligent_mode_montes_claros"
+    const val SMART_ACCEPTED_AT = "smart_accepted_at"
+    const val SMART_DESTINATION = "smart_destination"
+    const val SMART_ACTIVE_TRIP_STARTED = "smart_active_trip_started"
+    const val SMART_ACTIVE_TRIP_DESTINATION = "smart_active_trip_destination"
+    const val SMART_ENABLE_PENDING = "smart_enable_pending"
 }
+
+private const val REQUEST_LOCATION = 7001
+private const val REQUEST_BACKGROUND_LOCATION = 7002
