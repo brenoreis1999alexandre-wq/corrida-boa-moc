@@ -117,7 +117,7 @@ class SmartTrackingService : Service() {
     private fun handleLocation(location: Location, expectedDestination: String, acceptedAt: Long) {
         val now = System.currentTimeMillis()
         val previous = lastLocation
-        if (previous != null && lastArea.isNotBlank()) {
+        if (previous != null && activeTripStartedAt > 0L && lastArea.isNotBlank()) {
             val distance = previous.distanceTo(location)
             val speed = if (location.hasSpeed()) location.speed else distance / ((now - lastSampleAt).coerceAtLeast(1L) / 1000.0).toFloat()
             if (speed < 0.8f && distance < 80f) {
