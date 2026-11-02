@@ -622,14 +622,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             grossHour >= targetPerHour * 1.25 && grossMinute >= targetPerMinute * 1.25 && profit > 0.0
         // Prior can only add caution; strong economics may preserve the fare-only decision,
         // but no unmeasured destination/return heuristic upgrades a weak offer.
-        val recommendationStatus = if (localCaution && !exceptionalFare) when (status) {
-            OverlayManager.GOOD -> OverlayManager.MAYBE
-            OverlayManager.MAYBE -> OverlayManager.BAD
-            else -> status
-        } else status
+        val recommendationStatus = if (localCaution && !exceptionalFare) OverlayManager.BAD else status
         val reason = when {
             profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ oferta"
-            localCaution && !exceptionalFare -> "NÃO PEGAR • cautela local (${context.holiday ?: if (weekday == java.util.Calendar.TUESDAY) "terça fraca" else if (weekday == java.util.Calendar.WEDNESDAY) "quarta fraca" else "horário")"
+            localCaution && !exceptionalFare -> "NÃO PEGAR • cautela local; prior ${context.holiday ?: if (weekday == java.util.Calendar.TUESDAY) "terça fraca" else if (weekday == java.util.Calendar.WEDNESDAY) "quarta fraca" else "horário desfavorável"}"
             status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
             status == OverlayManager.MAYBE -> "AVALIAR • margem apertada"
             else -> "NÃO PEGAR • taxas abaixo do piso"
