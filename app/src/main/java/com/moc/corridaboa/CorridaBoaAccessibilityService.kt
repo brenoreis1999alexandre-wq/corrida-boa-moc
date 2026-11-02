@@ -619,7 +619,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val currentProfile = LocalContextAdvisor.level(currentArea, hourOfDay, localMinute, weekday, context.holiday != null)
         val destinationProfile = context.level
         val holiday = context.holiday
-        val hasCalendarEvent = smartMode && hasRelevantLocalCalendarEvent(localNow)
+        val hasCalendarEvent = smartMode && hasRelevantLocalCalendarEvent(localNow, pickupArea, destinationArea, gpsArea)
         val favorableDestination = destinationProfile == LocalContextAdvisor.Level.HIGH
         val favorablePickup = currentProfile == LocalContextAdvisor.Level.HIGH
         val favorableBorderline = profit > 0.0 && (favorableDestination || (status == OverlayManager.MAYBE && (favorablePickup || hasCalendarEvent)))
@@ -691,20 +691,23 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         )
     }
 
-    private fun hasRelevantLocalCalendarEvent(now: java.util.Calendar): Boolean {
+    private fun hasRelevantLocalCalendarEvent(now: java.util.Calendar, pickupArea: String, destinationArea: String, currentArea: String): Boolean {
         if (!settings.getBoolean(Prefs.CALENDAR_CONTEXT_ENABLED, false) || androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) return false
         val start = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.HOUR_OF_DAY,0); set(java.util.Calendar.MINUTE,0); set(java.util.Calendar.SECOND,0); set(java.util.Calendar.MILLISECOND,0) }.timeInMillis
         val end = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.HOUR_OF_DAY,23); set(java.util.Calendar.MINUTE,59); set(java.util.Calendar.SECOND,59); set(java.util.Calendar.MILLISECOND,999) }.timeInMillis
         val uri = android.provider.CalendarContract.Instances.CONTENT_URI.buildUpon().appendPath(start.toString()).appendPath(end.toString()).build()
-        val projection = arrayOf(android.provider.CalendarContract.Instances.TITLE, android.provider.CalendarContract.Instances.EVENT_LOCATION)
+        val projection = arrayOf(android.provider.CalendarContract.Instances.TITLE, android.provider.CalendarContract.Instances.EVENT_LOCATION, android.provider.CalendarContract.Instances.BEGIN, android.provider.CalendarContract.Instances.END)
         return try {
             contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
                 while (cursor.moveToNext()) {
                     val title = cursor.getString(0).orEmpty().lowercase(java.util.Locale.ROOT)
-                    val location = cursor.getString(1).orEmpty().lowercase(java.util.Locale.ROOT)
+                    val location = cursor.getString(1).orEmpty()
+                    val begin = cursor.getLong(2); val finish = cursor.getLong(3)
+                    val nearInTime = begin <= end && finish >= start
                     val relevant = listOf("show", "festa", "faculdade", "aula", "evento", "feira", "congresso", "unimontes", "funorte", "ifnmg", "hospital", "igreja", "cemiterio").any(title::contains)
-                    val local = location.isBlank() || location.contains("montes claros") || title.contains("montes claros")
-                    if (relevant && local) return@use true
+                    val eventArea = LocalContextAdvisor.areaFromAddress(location)
+                    val nearRoute = eventArea != "Destino não identificado" && eventArea in setOf(pickupArea, destinationArea, currentArea)
+                    if (nearInTime && relevant && nearRoute) return@use true
                 }
                 false
             } ?: false
