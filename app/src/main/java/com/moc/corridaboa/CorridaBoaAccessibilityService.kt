@@ -605,9 +605,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val localNow = java.util.Calendar.getInstance()
         val hourOfDay = localNow.get(java.util.Calendar.HOUR_OF_DAY)
         val weekday = localNow.get(java.util.Calendar.DAY_OF_WEEK)
-        val sampleCount = if (smartMode) runCatching {
-            history.observedOffersForArea(destinationArea, weekday, hourOfDay)
-        }.getOrDefault(0) else 0
+        val learnedPattern = if (smartMode) runCatching {
+            history.observedOfferPattern(destinationArea, weekday, hourOfDay)
+        }.getOrNull() else null
+        val sampleCount = learnedPattern?.observations ?: 0
 
         val gpsArea = settings.getString(Prefs.SMART_CURRENT_AREA, "").orEmpty()
         val idleStarted = settings.getLong(Prefs.SMART_IDLE_STARTED_AT, 0L)
@@ -623,7 +624,21 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val favorableBorderline = favorableDestination && profit > 0.0 && status == OverlayManager.MAYBE
         // A known, user-supplied local prior can tip a positive, borderline fare only;
         // it never overrides a BAD rate or claims an unmeasured return chance.
-        val recommendationStatus = if (favorableBorderline) OverlayManager.GOOD else status
+        // A tiny local statistical learner uses only captured offer economics, not
+        // manual labels or inferred completed trips. It can move a borderline call
+        // by one step only, after five comparable observations; hard financial
+        // rejections and clearly good offers are never overridden.
+        val learnedStatus = OfferLearner.adjust(
+            status, OverlayManager.GOOD, OverlayManager.MAYBE, profit,
+            learnedPattern, floorPerKm, floorPerHour
+        )
+        val learnedDownside = learnedStatus == OverlayManager.BAD && status == OverlayManager.MAYBE
+        val learnedUpside = learnedStatus == OverlayManager.GOOD && status == OverlayManager.MAYBE
+        val recommendationStatus = when {
+            learnedDownside -> OverlayManager.BAD
+            learnedUpside || favorableBorderline -> OverlayManager.GOOD
+            else -> status
+        }
         val weakMetrics = buildList {
             if (kmStatus == OverlayManager.BAD) add("R$${String.format(java.util.Locale("pt", "BR"), "%.2f", grossKm)}/km abaixo do piso")
             if (hourStatus == OverlayManager.BAD) add("R$${String.format(java.util.Locale("pt", "BR"), "%.2f", grossHour)}/h abaixo do piso")
@@ -631,24 +646,23 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }.joinToString("; ")
         val reason = when {
             profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ oferta"
-            status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
-            favorableBorderline -> "PEGAR • lucro positivo; prior local favorável no destino"
+            learnedDownside -> "NÃO PEGAR • padrão observado de margem fraca"
+            recommendationStatus == OverlayManager.GOOD && learnedUpside -> "PEGAR • padrão observado favorável; lucro estimado positivo"
+            recommendationStatus == OverlayManager.GOOD && status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
+            favorableBorderline -> "PEGAR • lucro positivo; prior local informado"
             status == OverlayManager.MAYBE -> "AVALIAR • ${weakMetrics.ifBlank { "margem apertada" }}"
             else -> "NÃO PEGAR • ${weakMetrics.ifBlank { "taxas abaixo do piso" }}"
         }
-        val samples = if (smartMode) runCatching {
-            history.observedOffersForArea(destinationArea, weekday, hourOfDay)
-        }.getOrDefault(0) else 0
-        val evidence = when {
-            samples >= 3 -> "Histórico: $samples ofertas observadas em $destinationArea/$hourOfDay h; amostra de ofertas, não mede chamadas/retorno."
-            else -> "Retorno em $destinationArea não medido; decisão pela oferta/custos e prior local informado."
-        }
+        val learningNote = if (sampleCount >= OfferLearner.MIN_SAMPLES)
+            "Aprendizado: $sampleCount ofertas comparáveis (não viagens concluídas)"
+        else null
         // Keep the overlay actionable: neighborhood-level route and one short rationale only.
         // Long street names, GPS, idle time, and raw sample counts remain out of the card.
         val routeSummary = if (pickupArea.isNotBlank() && destinationArea.isNotBlank())
             "ROTA: $pickupArea → $destinationArea" else ""
         val smartNote = listOfNotNull(
             reason,
+            learningNote,
             routeSummary.takeIf { it.isNotBlank() },
             context.holiday?.let { "Feriado: $it (contexto, não determina a decisão)" },
             context.favorable?.let { "Prior local informado: ${it.substringBefore(':')}" }
