@@ -612,42 +612,20 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val hourOfDay = localNow.get(java.util.Calendar.HOUR_OF_DAY)
         val weekday = localNow.get(java.util.Calendar.DAY_OF_WEEK)
         val dayName = java.text.SimpleDateFormat("EEEE", java.util.Locale("pt", "BR")).format(localNow.time)
-        val learning = if (smartMode) runCatching {
-            decisionHistory.destinationLearning(destinationArea, hourOfDay, weekday)
-        }.getOrNull() else null
-        val smartNote = if (!smartMode) demandSignal else {
-            val stay = runCatching { decisionHistory.observedStaySummary(destinationArea) }.getOrNull()
-            val historyNote = if (learning == null) {
-                "Histórico local: sem amostra para ${dayName.lowercase()} às ${hourOfDay.toString().padStart(2, '0')}h neste destino; confiança baixa, sem inferir demanda."
-            } else {
-                "Histórico local (${dayName.lowercase()}, ${hourOfDay.toString().padStart(2, '0')}h; ${learning.observations} decisões registradas): ${learning.accepted} aceitas e ${learning.rejected} recusadas. Isso registra escolhas do motorista, não procura por corridas."
+        val sampleCount = if (smartMode) runCatching {
+            history.observedOffersForArea(destinationArea, weekday, hourOfDay)
+        }.getOrDefault(0) else 0
+        val smartNote = if (!smartMode) demandSignal?.let { "Mapa Uber: $it" } else {
+            when {
+                destinationArea == "Destino não identificado" || sampleCount < 3 ->
+                    "Sem dados suficientes — decisão pelo cálculo."
+                else ->
+                    "Sinal observado: $sampleCount ofertas analisadas nessa região/faixa; histórico incompleto, não mede demanda."
             }
-            val stayNote = if (stay == null) " Observação local: nenhuma parada registrada neste destino."
-                else " Observação local: ${stay.first} parada(s), média de ${stay.second.toInt()} min; GPS/parada não confirma corrida concluída nem retorno."
-            val demandNote = demandSignal?.let { " Sinal legível do mapa Uber: $it" }
-                ?: " Mapa Uber: nenhum sinal legível detectado nesta captura."
-            val publicContext = " Referência pública municipal: a página de transporte cita aeroporto/Jaraguá e pontos de táxi/terminal; é contexto urbano, não dado atual de chamadas ou demanda. Sem evidência para recomendar deslocamento ou estimar retorno."
-            "$historyNote$stayNote$demandNote$publicContext"
         }
-        val decisionHandler: ((Boolean) -> Unit)? = if (smartMode) { accepted ->
-            runCatching {
-                val decisionAt = System.currentTimeMillis()
-                decisionHistory.saveDecision(
-                    decisionAt, pkg, fare, pickup, destinationArea, totalKm, tempoTotal, profit, accepted
-                )
-                if (accepted) {
-                    settings.edit().putLong(Prefs.SMART_ACCEPTED_AT, decisionAt)
-                        .putString(Prefs.SMART_DESTINATION, destinationArea).apply()
-                    val tracking = Intent(this, SmartTrackingService::class.java)
-                        .setAction(SmartTrackingService.ACTION_ACCEPTED)
-                        .putExtra(SmartTrackingService.EXTRA_ACCEPTED_AT, decisionAt)
-                        .putExtra(SmartTrackingService.EXTRA_DESTINATION, destinationArea)
-                    try {
-                        if (Build.VERSION.SDK_INT >= 26) startForegroundService(tracking) else startService(tracking)
-                    } catch (_: Exception) { }
-                }
-            }
-        } else null
+        // Automatic recommendation never accepts or rejects a trip and does not require an
+        // accepted/rejected click. Explicit decision learning remains separate and unused here.
+        val decisionHandler: ((Boolean) -> Unit)? = null
         val signature = offerFingerprint(pkg, offerContext)
         val now = System.currentTimeMillis()
         val duplicate = signature == lastSignature && now - lastAnnouncedAt < 180_000

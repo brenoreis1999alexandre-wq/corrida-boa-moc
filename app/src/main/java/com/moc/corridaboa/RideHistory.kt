@@ -116,4 +116,30 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
         }
         return rows
     }
+    /** Count analyzed offers matching the local weekday/hour and destination area.
+     * This is an incomplete, selection-biased app sample, not market demand.
+     */
+    fun observedOffersForArea(area: String, weekday: Int, hour: Int, limit: Int = 3000): Int {
+        val key = normalizeArea(area)
+        if (key.isBlank() || key == normalizeArea("Destino não identificado")) return 0
+        var count = 0
+        readableDatabase.query(
+            "offers", arrayOf("created_at", "dropoff"), null, null, null, null, "created_at DESC", limit.toString()
+        ).use { c ->
+            while (c.moveToNext()) {
+                if (normalizeArea(c.getString(1) ?: "") != key) continue
+                val cal = java.util.Calendar.getInstance().apply { timeInMillis = c.getLong(0) }
+                if (cal.get(java.util.Calendar.DAY_OF_WEEK) == weekday &&
+                    cal.get(java.util.Calendar.HOUR_OF_DAY) == hour) count++
+            }
+        }
+        return count
+    }
+
+    private fun normalizeArea(text: String): String = text
+        .lowercase(java.util.Locale("pt", "BR"))
+        .replace(Regex("[^\\p{L}\\p{N} ]"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
 }
