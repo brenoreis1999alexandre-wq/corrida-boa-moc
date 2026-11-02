@@ -618,15 +618,18 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val holidayPrior = smartMode && context.holiday != null
         val localCaution = smartMode && (holidayPrior || weekday == java.util.Calendar.TUESDAY || weekday == java.util.Calendar.WEDNESDAY ||
             (destinationArea == "Centro" && hourOfDay < 9))
-        val exceptionalFare = grossKm >= targetPerKm * 1.25 &&
-            grossHour >= targetPerHour * 1.25 && grossMinute >= targetPerMinute * 1.25 && profit > 0.0
         // Prior can only add caution; strong economics may preserve the fare-only decision,
         // but no unmeasured destination/return heuristic upgrades a weak offer.
-        val recommendationStatus = if (localCaution && !exceptionalFare) OverlayManager.BAD else status
+        // A local weekday/holiday prior cannot reverse an offer already classified GOOD by its economics.
+        val recommendationStatus = when {
+            status == OverlayManager.GOOD -> OverlayManager.GOOD
+            localCaution -> OverlayManager.BAD
+            else -> status
+        }
         val reason = when {
             profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ oferta"
-            localCaution && !exceptionalFare -> "NÃO PEGAR • cautela local; prior ${context.holiday ?: if (weekday == java.util.Calendar.TUESDAY) "terça fraca" else if (weekday == java.util.Calendar.WEDNESDAY) "quarta fraca" else "horário desfavorável"}"
-            status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
+            status == OverlayManager.GOOD -> "PEGAR • indicadores e lucro estimado bons"
+            localCaution -> "NÃO PEGAR • margem fraca + cautela local"
             status == OverlayManager.MAYBE -> "AVALIAR • margem apertada"
             else -> "NÃO PEGAR • taxas abaixo do piso"
         }
