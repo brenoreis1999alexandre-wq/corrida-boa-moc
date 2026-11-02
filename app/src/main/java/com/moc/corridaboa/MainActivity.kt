@@ -171,6 +171,13 @@ class MainActivity : Activity() {
             renderTab()
         })
         content.addView(modeCard)
+        content.addView(space(8))
+        val calendarCard = card()
+        calendarCard.addView(label("CALENDÁRIO E EVENTOS", 13, accent, true))
+        calendarCard.addView(label("Opcional: usa eventos de hoje (título/horário/local) e feriados para dar contexto. O conteúdo é lido no aparelho; evento não prova demanda.", 12, secondary))
+        val calendarOn = prefs.getBoolean(Prefs.CALENDAR_CONTEXT_ENABLED, false) && checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+        calendarCard.addView(actionButton(if (calendarOn) "Calendário: ligado" else "Ativar contexto do calendário") { requestCalendarContext() })
+        content.addView(calendarCard)
         content.addView(space(9))
         val todayStart = startOfToday()
         val todays = uniqueRecentOffers(RideHistory(this).between(todayStart, startOfTomorrow()))
@@ -671,6 +678,21 @@ class MainActivity : Activity() {
     private fun hasBackgroundLocationPermission(): Boolean =
         android.os.Build.VERSION.SDK_INT < 29 || checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
 
+    private fun requestCalendarContext() {
+        if (checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
+            prefs.edit().putBoolean(Prefs.CALENDAR_CONTEXT_ENABLED, true).apply()
+            Toast.makeText(this, "Contexto do calendário ativado", Toast.LENGTH_SHORT).show()
+            renderTab()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Permitir leitura do calendário?")
+            .setMessage("O RotaLume pode verificar eventos de hoje (título, horário e local) para considerar shows, aulas e datas especiais. A leitura acontece somente no aparelho; eventos não confirmam demanda. Você pode negar e continuar usando o app.")
+            .setNegativeButton("Agora não", null)
+            .setPositiveButton("Continuar") { _, _ -> requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), REQUEST_CALENDAR) }
+            .show()
+    }
+
     private fun ensureLocationPermissions() {
         if (locationPermissionRequested) return
         locationPermissionRequested = true
@@ -714,6 +736,11 @@ class MainActivity : Activity() {
                 locationPermissionRequested = false
                 ensureLocationPermissions()
             }
+        } else if (requestCode == REQUEST_CALENDAR) {
+            val granted = checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+            prefs.edit().putBoolean(Prefs.CALENDAR_CONTEXT_ENABLED, granted).apply()
+            Toast.makeText(this, if (granted) "Calendário ativado" else "Sem calendário; estratégia local continua ativa", Toast.LENGTH_LONG).show()
+            if (::pageHost.isInitialized) renderTab()
         } else if (requestCode == REQUEST_BACKGROUND_LOCATION && hasBackgroundLocationPermission()) {
             val enable = prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)
             prefs.edit().putBoolean(Prefs.INTELLIGENT_MODE, enable).putBoolean(Prefs.SMART_ENABLE_PENDING, false).apply()
@@ -790,7 +817,9 @@ internal object Prefs {
     const val SMART_CURRENT_AREA = "smart_current_area"
     const val SMART_IDLE_STARTED_AT = "smart_idle_started_at"
     const val DAILY_GROSS_TARGET = "daily_gross_target"
+    const val CALENDAR_CONTEXT_ENABLED = "calendar_context_enabled"
 }
 
 private const val REQUEST_LOCATION = 7001
 private const val REQUEST_BACKGROUND_LOCATION = 7002
+private const val REQUEST_CALENDAR = 7003
