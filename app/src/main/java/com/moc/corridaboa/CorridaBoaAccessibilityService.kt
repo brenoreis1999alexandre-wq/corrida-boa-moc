@@ -608,7 +608,6 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val learnedPattern = if (smartMode) runCatching {
             history.observedOfferPattern(destinationArea, weekday, hourOfDay)
         }.getOrNull() else null
-        val sampleCount = learnedPattern?.observations ?: 0
 
         val gpsArea = settings.getString(Prefs.SMART_CURRENT_AREA, "").orEmpty()
         val idleStarted = settings.getLong(Prefs.SMART_IDLE_STARTED_AT, 0L)
