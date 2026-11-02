@@ -608,27 +608,26 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
         val smartMode = settings.getBoolean(Prefs.INTELLIGENT_MODE, false)
         val destinationArea = neighborhoodKey(dropoff)
-        val hourOfDay = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val localNow = java.util.Calendar.getInstance()
+        val hourOfDay = localNow.get(java.util.Calendar.HOUR_OF_DAY)
+        val weekday = localNow.get(java.util.Calendar.DAY_OF_WEEK)
+        val dayName = java.text.SimpleDateFormat("EEEE", java.util.Locale("pt", "BR")).format(localNow.time)
         val learning = if (smartMode) runCatching {
-            decisionHistory.destinationLearning(destinationArea, hourOfDay)
+            decisionHistory.destinationLearning(destinationArea, hourOfDay, weekday)
         }.getOrNull() else null
         val smartNote = if (!smartMode) demandSignal else {
             val stay = runCatching { decisionHistory.observedStaySummary(destinationArea) }.getOrNull()
             val historyNote = if (learning == null) {
-                "Sem histórico suficiente de escolhas neste destino/horário."
+                "Histórico local: sem amostra para ${dayName.lowercase()} às ${hourOfDay.toString().padStart(2, '0')}h neste destino; confiança baixa, sem inferir demanda."
             } else {
-                "Neste destino/horário: ${learning.accepted} aceitas e ${learning.rejected} recusadas; lucro estimado médio das aceitas ${learning.acceptedProfitAverage.money()}."
+                "Histórico local (${dayName.lowercase()}, ${hourOfDay.toString().padStart(2, '0')}h; ${learning.observations} decisões registradas): ${learning.accepted} aceitas e ${learning.rejected} recusadas. Isso registra escolhas do motorista, não procura por corridas."
             }
-            val stayNote = if (stay == null) " Ainda não há registro de paradas observado neste bairro."
-                else " Foram observadas ${stay.first} parada(s), média de ${stay.second.toInt()} min; isso não confirma fim de corrida."
-            val demandNote = demandSignal?.let { " $it" }.orEmpty()
-            val returnPattern = runCatching { decisionHistory.observedReturnSummary(destinationArea, hourOfDay, System.currentTimeMillis()) }.getOrNull()
-            val returnNote = if (returnPattern == null) {
-                " Ainda não há amostra suficiente para estimar retorno nesse destino e horário."
-            } else {
-                " Em ${returnPattern.first} observações locais, a parada média ocorreu após ${returnPattern.third.toInt()} min; ${returnPattern.second.toInt()}% tiveram parada detectada na região de destino até 4 h depois. É padrão observado, não garantia de nova corrida."
-            }
-            "$historyNote$stayNote$demandNote$returnNote"
+            val stayNote = if (stay == null) " Observação local: nenhuma parada registrada neste destino."
+                else " Observação local: ${stay.first} parada(s), média de ${stay.second.toInt()} min; GPS/parada não confirma corrida concluída nem retorno."
+            val demandNote = demandSignal?.let { " Sinal legível do mapa Uber: $it" }
+                ?: " Mapa Uber: nenhum sinal legível detectado nesta captura."
+            val publicContext = " Referência pública municipal: a página de transporte cita aeroporto/Jaraguá e pontos de táxi/terminal; é contexto urbano, não dado atual de chamadas ou demanda. Sem evidência para recomendar deslocamento ou estimar retorno."
+            "$historyNote$stayNote$demandNote$publicContext"
         }
         val decisionHandler: ((Boolean) -> Unit)? = if (smartMode) { accepted ->
             runCatching {

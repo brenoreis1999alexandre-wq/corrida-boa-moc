@@ -14,7 +14,8 @@ internal data class DestinationLearning(
     val rejected: Int,
     val acceptancePercent: Int,
     val acceptedOfferAverage: Double,
-    val acceptedProfitAverage: Double
+    val acceptedProfitAverage: Double,
+    val weekday: Int
 )
 
 internal class SmartDecisionHistory(context: Context) : SQLiteOpenHelper(context, "aprendizado_corridas.db", null, 4) {
@@ -176,7 +177,7 @@ internal class SmartDecisionHistory(context: Context) : SQLiteOpenHelper(context
         return count to (minutes / count)
     }
 
-    fun destinationLearning(destination: String, hour: Int): DestinationLearning? {
+    fun destinationLearning(destination: String, hour: Int, weekday: Int): DestinationLearning? {
         val normalized = normalize(destination)
         if (normalized.isBlank()) return null
         var total = 0
@@ -190,8 +191,9 @@ internal class SmartDecisionHistory(context: Context) : SQLiteOpenHelper(context
         ).use { c ->
             while (c.moveToNext()) {
                 if (normalize(c.getString(4) ?: "") != normalized) continue
-                val atHour = Calendar.getInstance().apply { timeInMillis = c.getLong(0) }.get(Calendar.HOUR_OF_DAY)
-                if (atHour != hour) continue
+                val atTime = Calendar.getInstance().apply { timeInMillis = c.getLong(0) }
+                val atHour = atTime.get(Calendar.HOUR_OF_DAY)
+                if (atHour != hour || atTime.get(Calendar.DAY_OF_WEEK) != weekday) continue
                 total++
                 if (c.getInt(3) == 1) {
                     accepted++
@@ -206,7 +208,7 @@ internal class SmartDecisionHistory(context: Context) : SQLiteOpenHelper(context
         val acceptedCount = accepted.coerceAtLeast(1)
         return DestinationLearning(
             destination, total, accepted, rejected, acceptancePercent,
-            acceptedFare / acceptedCount, acceptedProfit / acceptedCount
+            acceptedFare / acceptedCount, acceptedProfit / acceptedCount, weekday
         )
     }
 

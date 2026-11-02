@@ -209,6 +209,39 @@ class MainActivity : Activity() {
         dailyCard.addView(label("RESUMO DE HOJE", 13, accent, true))
         dailyCard.addView(label(net.money(), 34, pale, true))
         dailyCard.addView(label("Lucro estimado após custos cadastrados", 13, secondary))
+        val dailyTarget = prefs.getFloat(Prefs.DAILY_GROSS_TARGET, 300f).toDouble()
+        val targetInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setSingleLine(true)
+            setText(if (prefs.contains(Prefs.DAILY_GROSS_TARGET)) dailyTarget.toString() else "300")
+            textSize = 14f
+            setTextColor(pale)
+            background = rounded(surface2, dp(10), Color.rgb(72, 89, 126))
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+        }
+        dailyCard.addView(label("Meta diária bruta estimada (R$) — padrão R$ 300: R$ 100 combustível + R$ 200 que você quer sobrar. Ajuste conforme seus custos.", 12, secondary))
+        dailyCard.addView(targetInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
+        dailyCard.addView(actionButton("Salvar meta diária") {
+            val value = parse(targetInput.text.toString())
+            if (value == null || value <= 0) Toast.makeText(this, "Informe uma meta maior que zero", Toast.LENGTH_SHORT).show()
+            else {
+                prefs.edit().putFloat(Prefs.DAILY_GROSS_TARGET, value.toFloat()).apply()
+                Toast.makeText(this, "Meta diária salva", Toast.LENGTH_SHORT).show()
+                renderTab()
+            }
+        })
+        val progressPct = if (dailyTarget > 0) (gross / dailyTarget * 100).toInt().coerceIn(0, 100) else 0
+        dailyCard.addView(label("Progresso estimado: ${gross.money()} de ${dailyTarget.money()} (${progressPct}%)", 13, accent, true))
+        dailyCard.addView(label("Baseado apenas nas tarifas de ofertas analisadas hoje — não comprova corrida concluída nem dinheiro recebido. Não é lucro; o valor abaixo desconta somente custos cadastrados.", 11, secondary))
+        val progressBar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = progressPct
+            progressTintList = android.content.res.ColorStateList.valueOf(accent)
+        }
+        dailyCard.addView(progressBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(9)))
+        dailyCard.addView(space(7))
+        dailyCard.addView(label("LUCRO ESTIMADO DAS OFERTAS APÓS CUSTOS CADASTRADOS", 12, secondary))
+        dailyCard.addView(label("Lucro estimado após custos cadastrados", 13, secondary))
         dailyCard.addView(space(12))
         dailyCard.addView(metricRow(listOf(
             "OFERTAS" to todays.size.toString(),
@@ -748,6 +781,7 @@ internal object Prefs {
     const val SMART_ACTIVE_TRIP_STARTED = "smart_active_trip_started"
     const val SMART_ACTIVE_TRIP_DESTINATION = "smart_active_trip_destination"
     const val SMART_ENABLE_PENDING = "smart_enable_pending"
+    const val DAILY_GROSS_TARGET = "daily_gross_target"
 }
 
 private const val REQUEST_LOCATION = 7001
