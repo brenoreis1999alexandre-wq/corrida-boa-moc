@@ -25,6 +25,14 @@ internal data class RideRecord(
     val status: Int
 )
 
+
+internal data class ObservedOfferPattern(
+    val observations: Int,
+    val averageNet: Double,
+    val averageGrossKm: Double,
+    val averageGrossHour: Double
+)
+
 internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrida_boa_history.db", null, 3) {
     private val duplicateWindowMs = 180_000L
 
@@ -134,6 +142,39 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
             }
         }
         return count
+    }
+
+    /**
+     * Learns only from offers this app captured, grouped by destination area,
+     * local 3-hour block, and weekday/weekend. These are a selection-biased
+     * sample of displayed offers, never completed rides or market demand.
+     */
+    fun observedOfferPattern(area: String, weekday: Int, hour: Int): ObservedOfferPattern? {
+        val key = normalizeArea(area)
+        if (key.isBlank() || key == normalizeArea("Destino não identificado")) return null
+        val weekend = weekday == java.util.Calendar.SATURDAY || weekday == java.util.Calendar.SUNDAY
+        var count = 0
+        var net = 0.0
+        var grossKm = 0.0
+        var grossHour = 0.0
+        readableDatabase.query(
+            "offers", arrayOf("created_at", "dropoff", "net", "gross_km", "gross_hour"),
+            null, null, null, null, "created_at DESC", "3000"
+        ).use { c ->
+            while (c.moveToNext()) {
+                if (normalizeArea(c.getString(1) ?: "") != key) continue
+                val cal = java.util.Calendar.getInstance().apply { timeInMillis = c.getLong(0) }
+                val recordWeekend = cal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.SATURDAY ||
+                    cal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.SUNDAY
+                if (recordWeekend != weekend || cal.get(java.util.Calendar.HOUR_OF_DAY) / 3 != hour / 3) continue
+                count++
+                net += c.getDouble(2)
+                grossKm += c.getDouble(3)
+                grossHour += c.getDouble(4)
+            }
+        }
+        if (count == 0) return null
+        return ObservedOfferPattern(count, net / count, grossKm / count, grossHour / count)
     }
 
     private fun normalizeArea(text: String): String = text
