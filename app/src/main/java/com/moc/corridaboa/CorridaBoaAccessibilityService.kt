@@ -595,7 +595,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val acceptableMetrics = statuses.count { it != OverlayManager.BAD }
         val status = when {
             profit <= 0.0 -> OverlayManager.BAD
-            goodMetrics >= 2 && statuses.none { it == OverlayManager.BAD } -> OverlayManager.GOOD
+            // Two indicators at/above the driver's good targets are enough when
+            // estimated profit is positive; one weak secondary rate must not veto a good fare.
+            goodMetrics >= 2 -> OverlayManager.GOOD
             acceptableMetrics >= 2 -> OverlayManager.MAYBE
             else -> OverlayManager.BAD
         }
