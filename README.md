@@ -25,6 +25,14 @@ App Android de apoio ao motorista, com interface em painel, histórico e ajustes
 - Ajustes de gasolina, consumo e critérios; o custo por km de combustível é calculado a partir dos dados informados.
 - O app não toca em botões, aceita ou recusa corridas.
 
+## Aprendizado local (v1.8.9)
+
+Com o Modo Inteligente ligado, o app registra localmente as ofertas que consegue ler, sem exigir marcação Aceitei/Recusei. Agrupa por destino reconhecido, bloco local de 3 horas e dia útil/fim de semana. Com pelo menos cinco observações comparáveis, a média de margem/taxas pode ajustar em um nível apenas uma recomendação financeiramente limítrofe; não muda o cálculo da tarifa, não reverte lucro estimado não positivo nem ofertas claramente boas ou abaixo do piso. O cartão mostra a quantidade de ofertas comparáveis quando a amostra atinge cinco.
+
+São **ofertas exibidas**, não viagens concluídas nem demanda geral; o histórico é incompleto e enviesado. GPS/uma sequência de deslocamento pode indicar apenas contexto, nunca comprova que o motorista aceitou, fez a viagem ou recebeu a tarifa. Nesta versão, o GPS não associa coordenadas da oferta a uma rota completa para validar conclusão; não há rótulo de viagem concluída inferido. Nada é enviado a servidor, e o app não aceita/recusa corridas.
+
+O agrupamento e os horários usam dados/localidade disponíveis no aparelho; o reconhecimento atual de bairros e priors de calendário/clima são limitados e incluem regras brasileiras/locais. O modelo financeiro de aprendizado é genérico, mas suporte confiável a cidades/países e geocodificação de destinos ainda precisa de implementação e testes locais — não há alegação de disponibilidade mundial validada. As hipóteses locais de Montes Claros são priors informados, não estatísticas universais.
+
 ## Metas e cores dos indicadores
 
 - A pessoa define, para cada valor bruto da oferta por km, hora e minuto, uma meta boa (verde) e um piso mínimo aceitável.
