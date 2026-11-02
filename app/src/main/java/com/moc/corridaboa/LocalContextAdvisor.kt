@@ -65,7 +65,25 @@ internal object LocalContextAdvisor {
             timeInMillis = easter.timeInMillis
             add(Calendar.DAY_OF_YEAR, -2)
         }
-        return if (month == goodFriday.get(Calendar.MONTH) + 1 && day == goodFriday.get(Calendar.DAY_OF_MONTH)) "Sexta-feira Santa" else null
+        val carnivalTuesday = Calendar.getInstance(date.timeZone, Locale("pt", "BR")).apply {
+            timeInMillis = easter.timeInMillis
+            add(Calendar.DAY_OF_YEAR, -47)
+        }
+        val carnivalMonday = Calendar.getInstance(date.timeZone, Locale("pt", "BR")).apply {
+            timeInMillis = easter.timeInMillis
+            add(Calendar.DAY_OF_YEAR, -48)
+        }
+        val corpusChristi = Calendar.getInstance(date.timeZone, Locale("pt", "BR")).apply {
+            timeInMillis = easter.timeInMillis
+            add(Calendar.DAY_OF_YEAR, 60)
+        }
+        fun sameDay(other: Calendar) = month == other.get(Calendar.MONTH) + 1 && day == other.get(Calendar.DAY_OF_MONTH)
+        return when {
+            sameDay(goodFriday) -> "Sexta-feira Santa"
+            sameDay(carnivalMonday) || sameDay(carnivalTuesday) -> "Carnaval (data móvel)"
+            sameDay(corpusChristi) -> "Corpus Christi (data móvel)"
+            else -> null
+        }
     }
 
     private fun easterSunday(year: Int): Calendar {

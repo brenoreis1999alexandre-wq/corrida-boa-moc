@@ -244,7 +244,7 @@ internal object OverlayManager {
             bubblePriceResetTask = resetPrice
             handler.postDelayed(resetPrice, BUBBLE_PRICE_VISIBLE_MS)
             val accent = statusColor(status)
-            val decision = if (status == GOOD) "PEGAR" else "NÃO PEGAR"
+            val decision = when (status) { GOOD -> "PEGAR"; MAYBE -> "AVALIAR"; else -> "NÃO PEGAR" }
             val card = baseResultCard(service, accent)
             val header = LinearLayout(service).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -345,7 +345,7 @@ internal object OverlayManager {
                     setTextColor(Color.rgb(190, 220, 255))
                     setPadding(0, dp(service, 6), 0, 0)
                     gravity = Gravity.CENTER
-                    maxLines = 2
+                    maxLines = 5
                 })
             }
             card.contentDescription = "$decision. Oferta $offerAmount, custos $totalCostsAmount, lucro estimado $profitAmount; valores brutos $grossPerKm por km, $grossPerHour por hora e $grossPerMinute por minuto"

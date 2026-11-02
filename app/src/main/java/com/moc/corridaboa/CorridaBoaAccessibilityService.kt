@@ -615,21 +615,19 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val context = LocalContextAdvisor.evaluate(
             dropoff, gpsArea, idleMinutes, grossKm, hourOfDay, weekday, localNow
         )
-        val holidayPrior = smartMode && context.holiday != null
-        val localCaution = smartMode && (holidayPrior || weekday == java.util.Calendar.TUESDAY || weekday == java.util.Calendar.WEDNESDAY ||
-            (destinationArea == "Centro" && hourOfDay < 9))
-        // Prior can only add caution; strong economics may preserve the fare-only decision,
-        // but no unmeasured destination/return heuristic upgrades a weak offer.
-        // A local weekday/holiday prior cannot reverse an offer already classified GOOD by its economics.
-        val recommendationStatus = when {
-            status == OverlayManager.GOOD -> OverlayManager.GOOD
-            localCaution -> OverlayManager.BAD
-            else -> status
-        }
+        // Calendar/day priors are context only: they may explain a borderline call, never
+        // turn an economically GOOD offer into a rejection. Do not pretend they measure demand.
+        val localCaution = smartMode && (context.holiday != null || weekday == java.util.Calendar.TUESDAY ||
+            weekday == java.util.Calendar.WEDNESDAY || (destinationArea == "Centro" && hourOfDay < 9))
+        val favorableDestination = smartMode && context.favorable != null
+        val favorableBorderline = favorableDestination && profit > 0.0 && status == OverlayManager.MAYBE
+        // A known, user-supplied local prior can tip a positive, borderline fare only;
+        // it never overrides a BAD rate or claims an unmeasured return chance.
+        val recommendationStatus = if (favorableBorderline) OverlayManager.GOOD else status
         val reason = when {
             profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ oferta"
-            status == OverlayManager.GOOD -> "PEGAR • indicadores e lucro estimado bons"
-            localCaution -> "NÃO PEGAR • margem fraca + cautela local"
+            status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
+            favorableBorderline -> "PEGAR • lucro positivo; prior local favorável no destino"
             status == OverlayManager.MAYBE -> "AVALIAR • margem apertada"
             else -> "NÃO PEGAR • taxas abaixo do piso"
         }
@@ -641,15 +639,19 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             else -> "Retorno em $destinationArea não medido; decisão pela oferta/custos e prior local informado."
         }
         val current = gpsArea.takeIf { it.isNotBlank() }?.let { "GPS: $it" + (idleMinutes?.let { m -> " • parada observada ${m} min" } ?: "") }
+        val routeSummary = buildList {
+            if (pickup.isNotBlank()) add("Origem (${pickupArea}): $pickup")
+            if (dropoff.isNotBlank()) add("Destino (${destinationArea}): $dropoff")
+        }.joinToString(" → ")
         val smartNote = listOfNotNull(
             reason,
-            "Destino: $destinationArea",
-            context.holiday?.let { "Feriado: $it" },
+            routeSummary.takeIf { it.isNotBlank() },
+            context.holiday?.let { "Data: $it (prior contextual, não previsão de demanda)" },
             context.favorable ?: if (pickupArea == "Independência" && hourOfDay in 6..10) "Origem Independência: prior matinal informado" else null,
             current,
             if (smartMode) evidence else null,
             if (!smartMode) demandSignal?.let { "Mapa Uber: $it" } else null
-        ).joinToString(" • ").take(200)
+        ).joinToString(" • ").take(480)
         // Recommendation is automatic; it never accepts/rejects and does not require a manual choice.
         val decisionHandler: ((Boolean) -> Unit)? = null
         val signature = offerFingerprint(pkg, offerContext)
