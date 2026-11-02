@@ -18,7 +18,8 @@ internal object LocalContextAdvisor {
             "Independência", "Planalto", "Jaraguá", "Centro", "Major Prates", "Ibituruna",
             "São José", "Unimontes", "Delfino Magalhães", "Canelas", "Jardim São Luiz",
             "Vila Oliveira", "Todos os Santos", "Maracanã", "Santos Reis", "Renascença",
-            "Esplanada", "Monte Alegre", "Alice Maia", "Morrinhos", "Vera Cruz", "Santa Rita"
+            "Esplanada", "Monte Alegre", "Alice Maia", "Morrinhos", "Vera Cruz", "Santa Rita",
+            "Barcelona Park"
         )
         return neighborhoods.firstOrNull { normalize(it).let(value::contains) } ?: "Destino não identificado"
     }
