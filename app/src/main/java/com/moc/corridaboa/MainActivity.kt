@@ -6,6 +6,7 @@ import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.content.ComponentName
 import android.content.Intent
+import android.location.Location
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -24,10 +25,22 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polygon
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.io.File
 
 class MainActivity : Activity() {
     private lateinit var pageHost: FrameLayout
@@ -46,6 +59,10 @@ class MainActivity : Activity() {
     private var historyVisibleCount = 20
     private var locationPermissionRequested = false
     private var pendingLocationPermissionToggle = false
+    private var mapView: MapView? = null
+    private var mapLocationCallback: LocationCallback? = null
+    private var mapCurrentLocation: Location? = null
+    private var mapSummaryLabel: TextView? = null
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
 
     private val bg = Color.rgb(13, 19, 36)
@@ -71,10 +88,26 @@ class MainActivity : Activity() {
         renderTab()
     }
 
+    override fun onPause() {
+        stopMapLocationUpdates()
+        mapView?.onPause()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        stopMapLocationUpdates()
+        mapView?.onDetach()
+        mapView = null
+        mapSummaryLabel = null
+        super.onDestroy()
+    }
+
     override fun onResume() {
         super.onResume()
+        mapView?.onResume()
         if (!::pageHost.isInitialized) return
         if (selectedTab == 0) renderTab()
+        if (selectedTab == 1 && mapView != null) { refreshMapLocation(); startMapLocationUpdates() }
         if (prefs.getBoolean(Prefs.INTELLIGENT_MODE, false) || pendingLocationPermissionToggle || prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)) {
             if (hasForegroundLocationPermission() && hasBackgroundLocationPermission()) {
                 val wasPending = pendingLocationPermissionToggle || prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)
@@ -96,10 +129,15 @@ class MainActivity : Activity() {
         pageHost.removeAllViews()
         accessStatusLabel = null
         overlayStatusLabel = null
+        stopMapLocationUpdates()
+        mapView?.onPause()
+        mapView?.onDetach()
+        mapView = null
         val page = when (selectedTab) {
-            1 -> historyPage()
-            2 -> calculatorPage()
-            3 -> settingsPage()
+            1 -> mapPage()
+            2 -> historyPage()
+            3 -> calculatorPage()
+            4 -> settingsPage()
             else -> dashboardPage()
         }
         pageHost.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -110,7 +148,7 @@ class MainActivity : Activity() {
         gravity = Gravity.CENTER
         setPadding(dp(7), dp(5), dp(7), dp(6))
         setBackgroundColor(Color.rgb(20, 29, 49))
-        val items = listOf("⌂" to "Painel", "▤" to "Histórico", "▣" to "Calculadora", "⚙" to "Ajustes")
+        val items = listOf("⌂" to "Painel", "⌖" to "Mapa", "▤" to "Histórico", "▣" to "Calculadora", "⚙" to "Ajustes")
         items.forEachIndexed { index, item ->
             val navItem = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -138,6 +176,213 @@ class MainActivity : Activity() {
             }
             addView(navItem, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
+    }
+
+    private data class MapArea(val name: String, val lat: Double, val lon: Double)
+
+    private val mapAreas = listOf(
+        MapArea("Independência", -16.71820, -43.81464), MapArea("Delfino Magalhães", -16.73610, -43.83805),
+        MapArea("Jaraguá", -16.69672, -43.82233), MapArea("Planalto", -16.69867, -43.83668),
+        MapArea("São José", -16.72114, -43.85765), MapArea("Major Prates", -16.74795, -43.87837),
+        MapArea("Centro", -16.72299, -43.86535), MapArea("Ibituruna", -16.72599, -43.88586),
+        MapArea("Canelas", -16.74407, -43.86689), MapArea("Unimontes", -16.72044, -43.87862),
+        MapArea("Renascença", -16.69660, -43.85335), MapArea("Maracanã", -16.76130, -43.86614),
+        MapArea("Morrinhos", -16.73293, -43.86457), MapArea("Santos Reis", -16.70025, -43.86994),
+        MapArea("Nova Esperança", -16.54026, -43.96151), MapArea("Jardim São Luiz", -16.73055, -43.87812),
+        MapArea("Vila Guilhermina", -16.73663, -43.86736), MapArea("Edgar Pereira", -16.70690, -43.86314),
+        MapArea("Alcides Rabelo", -16.70729, -43.84316), MapArea("São Judas Tadeu", -16.74890, -43.86125),
+        MapArea("Jardim São Geraldo", -16.75708, -43.87538), MapArea("Jardim Olímpico", -16.74604, -43.82906),
+        MapArea("Vila Oliveira", -16.71374, -43.88524), MapArea("Todos os Santos", -16.71750, -43.87333),
+        MapArea("Esplanada", -16.71310, -43.84046), MapArea("Monte Alegre", -16.72944, -43.84737),
+        MapArea("Alice Maia", -16.70720, -43.85362), MapArea("Vera Cruz", -16.71368, -43.84582),
+        MapArea("Santa Rita", -16.73244, -43.85874),
+        MapArea("Rodoviária", -16.74278, -43.86830), MapArea("Hosp. Aroldo Tourinho", -16.70994, -43.86569),
+        MapArea("Hosp. Dilson Godinho", -16.71743, -43.85835), MapArea("Santa Casa", -16.72536, -43.87026),
+        MapArea("Montes Claros Shopping", -16.74216, -43.87051)
+    )
+
+    private fun mapPage(): View {
+        val osmdroidCache = File(filesDir, "osmdroid").apply { mkdirs() }
+        Configuration.getInstance().apply {
+            userAgentValue = "RotaLume Android/1.9.3"
+            setOsmdroidBasePath(osmdroidCache)
+            setOsmdroidTileCache(File(osmdroidCache, "tiles").apply { mkdirs() })
+        }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(8), dp(12), dp(8)); setBackgroundColor(bg) }
+        root.addView(label("Mapa • Montes Claros", 22, pale, true))
+        root.addView(label("Círculos aproximados por bairro. Cores = perfil local informado, não demanda nem trânsito ao vivo.", 12, secondary))
+        val legend = label("🟢 faixa forte   🟡 média   🔴 fraca   🔵 sua localização", 12, pale, true)
+        root.addView(legend)
+        mapSummaryLabel = label("Buscando localização…", 13, pale, true)
+        root.addView(mapSummaryLabel)
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val locate = actionButton("Minha localização") { requestMapLocation() }.apply { textSize = 12f }
+        val openGoogle = actionButton("Google Maps") { openExternalMap("google") }.apply { textSize = 12f }
+        val openWaze = actionButton("Waze") { openExternalMap("waze") }.apply { textSize = 12f }
+        controls.addView(locate, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) })
+        controls.addView(openGoogle, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) })
+        controls.addView(openWaze, LinearLayout.LayoutParams(0, dp(44), 1f))
+        root.addView(controls)
+        val map = MapView(this).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            controller.setZoom(12.8)
+            controller.setCenter(GeoPoint(-16.722, -43.865))
+            setMinZoomLevel(10.0)
+            setMaxZoomLevel(19.0)
+        }
+        mapView = map
+        root.addView(map, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val footer = label("Mapa © OpenStreetMap contributors • perfil local informativo; sem promessa de retorno.", 10, secondary)
+        root.addView(footer)
+        drawLocalHeatProfile()
+        if (!hasForegroundLocationPermission()) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_MAP_LOCATION)
+        } else {
+            refreshMapLocation()
+            startMapLocationUpdates()
+        }
+        return root
+    }
+
+    private fun drawLocalHeatProfile() {
+        val map = mapView ?: return
+        map.overlays.clear()
+        val now = Calendar.getInstance()
+        val hour = now.get(Calendar.HOUR_OF_DAY); val minute = now.get(Calendar.MINUTE); val weekday = now.get(Calendar.DAY_OF_WEEK)
+        val holiday = LocalContextAdvisor.holidayName(now) != null
+        for (area in mapAreas) {
+            val level = mapProfile(area.name, hour, minute, weekday, holiday)
+            val color = when(level) {
+                LocalContextAdvisor.Level.HIGH -> Color.rgb(42, 205, 118)
+                LocalContextAdvisor.Level.MEDIUM -> Color.rgb(245, 193, 66)
+                LocalContextAdvisor.Level.LOW -> Color.rgb(235, 82, 87)
+                LocalContextAdvisor.Level.UNKNOWN -> Color.GRAY
+            }
+            val center = GeoPoint(area.lat, area.lon)
+            val circle = Polygon(map).apply {
+                points = Polygon.pointsAsCircle(center, 420.0)
+                setFillColor(android.graphics.Color.argb(55, Color.red(color), Color.green(color), Color.blue(color)))
+                setStrokeColor(android.graphics.Color.argb(170, Color.red(color), Color.green(color), Color.blue(color)))
+                setStrokeWidth(dp(2).toFloat())
+            }
+            map.overlays.add(circle)
+            val marker = Marker(map).apply {
+                position = center
+                title = "${profileEmoji(level)} ${area.name} • ${profileText(level)}"
+                snippet = "Referência local informada pelo motorista; não é dado de demanda ao vivo."
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(color); setStroke(dp(2), Color.WHITE); setSize(dp(18), dp(18)) }
+            }
+            map.overlays.add(marker)
+        }
+        mapCurrentLocation?.let { location ->
+            val marker = Marker(map).apply {
+                position = GeoPoint(location.latitude, location.longitude); title = "Sua localização GPS"
+                snippet = "Precisão aproximada: ${location.accuracy.toInt()} m"
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Color.rgb(45, 145, 255)); setStroke(dp(3), Color.WHITE); setSize(dp(23), dp(23)) }
+            }
+            map.overlays.add(marker)
+            val nearest = nearestStrongArea(location, hour, minute, weekday, holiday)
+            if (nearest != null) {
+                val kmAway = String.format(Locale("pt","BR"), "%.1f", nearest.second / 1000)
+                marker.snippet = "Faixa forte mais próxima: ${nearest.first.name}, $kmAway km em linha reta. Não é previsão de corrida."
+                mapSummaryLabel?.text = "GPS atual • faixa forte próxima no perfil: ${nearest.first.name} ($kmAway km em linha reta)"
+            } else {
+                mapSummaryLabel?.text = "GPS atual • sem faixa forte no perfil informado neste horário."
+            }
+            map.controller.animateTo(GeoPoint(location.latitude, location.longitude))
+        } ?: run {
+            mapSummaryLabel?.text = "GPS indisponível • toque em Minha localização."
+        }
+        map.invalidate()
+    }
+
+    private fun mapProfile(name: String, hour: Int, minute: Int, weekday: Int, holiday: Boolean): LocalContextAdvisor.Level {
+        val n = name.lowercase(Locale.ROOT)
+        val t = hour * 60 + minute
+        if (n == "centro") return when {
+            holiday || weekday == Calendar.SUNDAY -> LocalContextAdvisor.Level.LOW
+            t < 630 -> LocalContextAdvisor.Level.LOW
+            t < 1080 -> LocalContextAdvisor.Level.HIGH
+            t < 1260 -> LocalContextAdvisor.Level.MEDIUM
+            else -> LocalContextAdvisor.Level.LOW
+        }
+        if (n == "independência" && (t < 300 || t >= 540)) {
+            return if (t >= 1020 && t < 1140) LocalContextAdvisor.Level.MEDIUM else LocalContextAdvisor.Level.LOW
+        }
+        if (n == "major prates" && (t < 360 || t >= 540 && t < 1020 || t >= 1200)) return LocalContextAdvisor.Level.LOW
+        if ((n == "unimontes") && (holiday || weekday == Calendar.SATURDAY || weekday == Calendar.SUNDAY)) return LocalContextAdvisor.Level.LOW
+        return LocalContextAdvisor.level(name, hour, minute, weekday, holiday)
+    }
+
+    private fun profileEmoji(level: LocalContextAdvisor.Level) = when(level) {
+        LocalContextAdvisor.Level.HIGH -> "🟢"; LocalContextAdvisor.Level.MEDIUM -> "🟡"; LocalContextAdvisor.Level.LOW -> "🔴"; else -> "⚪"
+    }
+    private fun profileText(level: LocalContextAdvisor.Level) = when(level) {
+        LocalContextAdvisor.Level.HIGH -> "faixa forte"; LocalContextAdvisor.Level.MEDIUM -> "faixa média"; LocalContextAdvisor.Level.LOW -> "faixa fraca"; else -> "sem perfil"
+    }
+
+    private fun nearestStrongArea(location: Location, hour: Int, minute: Int, weekday: Int, holiday: Boolean): Pair<MapArea, Float>? = mapAreas.mapNotNull { area ->
+        if (mapProfile(area.name, hour, minute, weekday, holiday) != LocalContextAdvisor.Level.HIGH) return@mapNotNull null
+        val out = FloatArray(1); Location.distanceBetween(location.latitude, location.longitude, area.lat, area.lon, out)
+        area to out[0]
+    }.minByOrNull { it.second }
+
+    private fun requestMapLocation() {
+        if (!hasForegroundLocationPermission()) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_MAP_LOCATION)
+            return
+        }
+        refreshMapLocation(); startMapLocationUpdates()
+    }
+
+    private fun refreshMapLocation() {
+        if (!hasForegroundLocationPermission()) return
+        try {
+            LocationServices.getFusedLocationProviderClient(this).lastLocation.addOnSuccessListener { location ->
+                if (location != null) { mapCurrentLocation = location; drawLocalHeatProfile() }
+            }
+        } catch (_: SecurityException) { }
+    }
+
+    private fun startMapLocationUpdates() {
+        if (!hasForegroundLocationPermission() || mapLocationCallback != null) return
+        val cb = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { mapCurrentLocation = it; drawLocalHeatProfile() }
+            }
+        }
+        mapLocationCallback = cb
+        try {
+            LocationServices.getFusedLocationProviderClient(this).requestLocationUpdates(
+                LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 15_000L).setMinUpdateDistanceMeters(40f).build(), cb, mainLooper
+            )
+        } catch (_: SecurityException) { mapLocationCallback = null }
+    }
+
+    private fun stopMapLocationUpdates() {
+        mapLocationCallback?.let { LocationServices.getFusedLocationProviderClient(this).removeLocationUpdates(it) }
+        mapLocationCallback = null
+    }
+
+    private fun openExternalMap(provider: String) {
+        val location = mapCurrentLocation
+        if (location == null) {
+            Toast.makeText(this, "Aguardando localização GPS", Toast.LENGTH_SHORT).show()
+            refreshMapLocation()
+            return
+        }
+        val now = Calendar.getInstance()
+        val area = nearestStrongArea(location, now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), now.get(Calendar.DAY_OF_WEEK), LocalContextAdvisor.holidayName(now) != null)?.first
+        if (area == null) {
+            Toast.makeText(this, "Sem faixa forte no perfil local agora; consulte o mapa antes de se deslocar.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val uri = if (provider == "waze") Uri.parse("waze://?ll=${area.lat},${area.lon}&navigate=yes") else Uri.parse("google.navigation:q=${area.lat},${area.lon}&mode=d")
+        try { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+        catch (_: Exception) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:${area.lat},${area.lon}?q=${area.lat},${area.lon}(${Uri.encode(area.name)})"))) }
     }
 
     private fun dashboardPage(): View {
@@ -264,7 +509,7 @@ class MainActivity : Activity() {
         val calcCard = card()
         calcCard.addView(label("CALCULADORA DE GANHOS", 14, accent, true))
         calcCard.addView(label("Calcule um valor por km considerando combustível, custos mensais e sua meta.", 12, secondary))
-        calcCard.addView(actionButton("Abrir calculadora de ganhos") { selectedTab = 2; renderTab() })
+        calcCard.addView(actionButton("Abrir calculadora de ganhos") { selectedTab = 3; renderTab() })
         content.addView(calcCard)
         content.addView(space(14))
 
@@ -725,7 +970,11 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_LOCATION && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
+        if (requestCode == REQUEST_MAP_LOCATION) {
+            if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
+                refreshMapLocation(); startMapLocationUpdates()
+            } else Toast.makeText(this, "Sem GPS; você ainda pode consultar o mapa manualmente.", Toast.LENGTH_LONG).show()
+        } else if (requestCode == REQUEST_LOCATION && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
             if (hasBackgroundLocationPermission()) {
                 val enable = prefs.getBoolean(Prefs.SMART_ENABLE_PENDING, false)
                 prefs.edit().putBoolean(Prefs.INTELLIGENT_MODE, enable).putBoolean(Prefs.SMART_ENABLE_PENDING, false).apply()
@@ -823,3 +1072,4 @@ internal object Prefs {
 private const val REQUEST_LOCATION = 7001
 private const val REQUEST_BACKGROUND_LOCATION = 7002
 private const val REQUEST_CALENDAR = 7003
+private const val REQUEST_MAP_LOCATION = 7004
