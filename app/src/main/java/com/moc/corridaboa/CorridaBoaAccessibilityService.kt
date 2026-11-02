@@ -623,7 +623,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val hasCalendarEvent = smartMode && hasRelevantLocalCalendarEvent(localNow, pickupArea, destinationArea, gpsArea)
         val favorableDestination = destinationProfile == LocalContextAdvisor.Level.HIGH
         val favorablePickup = currentProfile == LocalContextAdvisor.Level.HIGH
-        val favorableBorderline = profit > 0.0 && (favorableDestination || (status == OverlayManager.MAYBE && (favorablePickup || hasCalendarEvent)))
+        val favorableBorderline = profit > 0.0 && status == OverlayManager.MAYBE && (favorableDestination || favorablePickup || hasCalendarEvent)
         val learnedStatus = OfferLearner.adjust(status, OverlayManager.GOOD, OverlayManager.MAYBE, profit, learnedPattern, floorPerKm, floorPerHour)
         val learnedDownside = learnedStatus == OverlayManager.BAD && status == OverlayManager.MAYBE
         val learnedUpside = learnedStatus == OverlayManager.GOOD && status == OverlayManager.MAYBE
