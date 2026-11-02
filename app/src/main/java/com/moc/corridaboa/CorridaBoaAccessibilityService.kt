@@ -624,12 +624,17 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         // A known, user-supplied local prior can tip a positive, borderline fare only;
         // it never overrides a BAD rate or claims an unmeasured return chance.
         val recommendationStatus = if (favorableBorderline) OverlayManager.GOOD else status
+        val weakMetrics = buildList {
+            if (kmStatus == OverlayManager.BAD) add("R$${String.format(java.util.Locale("pt", "BR"), "%.2f", grossKm)}/km abaixo do piso")
+            if (hourStatus == OverlayManager.BAD) add("R$${String.format(java.util.Locale("pt", "BR"), "%.2f", grossHour)}/h abaixo do piso")
+            if (minuteStatus == OverlayManager.BAD) add("R$${String.format(java.util.Locale("pt", "BR"), "%.2f", grossMinute)}/min abaixo do piso")
+        }.joinToString("; ")
         val reason = when {
             profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ oferta"
             status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
             favorableBorderline -> "PEGAR • lucro positivo; prior local favorável no destino"
-            status == OverlayManager.MAYBE -> "AVALIAR • margem apertada"
-            else -> "NÃO PEGAR • taxas abaixo do piso"
+            status == OverlayManager.MAYBE -> "AVALIAR • ${weakMetrics.ifBlank { "margem apertada" }}"
+            else -> "NÃO PEGAR • ${weakMetrics.ifBlank { "taxas abaixo do piso" }}"
         }
         val samples = if (smartMode) runCatching {
             history.observedOffersForArea(destinationArea, weekday, hourOfDay)
@@ -638,20 +643,16 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             samples >= 3 -> "Histórico: $samples ofertas observadas em $destinationArea/$hourOfDay h; amostra de ofertas, não mede chamadas/retorno."
             else -> "Retorno em $destinationArea não medido; decisão pela oferta/custos e prior local informado."
         }
-        val current = gpsArea.takeIf { it.isNotBlank() }?.let { "GPS: $it" + (idleMinutes?.let { m -> " • parada observada ${m} min" } ?: "") }
-        val routeSummary = buildList {
-            if (pickup.isNotBlank()) add("Origem (${pickupArea}): $pickup")
-            if (dropoff.isNotBlank()) add("Destino (${destinationArea}): $dropoff")
-        }.joinToString(" → ")
+        // Keep the overlay actionable: neighborhood-level route and one short rationale only.
+        // Long street names, GPS, idle time, and raw sample counts remain out of the card.
+        val routeSummary = if (pickupArea.isNotBlank() && destinationArea.isNotBlank())
+            "ROTA: $pickupArea → $destinationArea" else ""
         val smartNote = listOfNotNull(
             reason,
             routeSummary.takeIf { it.isNotBlank() },
-            context.holiday?.let { "Data: $it (prior contextual, não previsão de demanda)" },
-            context.favorable ?: if (pickupArea == "Independência" && hourOfDay in 6..10) "Origem Independência: prior matinal informado" else null,
-            current,
-            if (smartMode) evidence else null,
-            if (!smartMode) demandSignal?.let { "Mapa Uber: $it" } else null
-        ).joinToString(" • ").take(480)
+            context.holiday?.let { "Feriado: $it (contexto, não determina a decisão)" },
+            context.favorable?.let { "Prior local informado: ${it.substringBefore(':')}" }
+        ).joinToString(" • ").take(180)
         // Recommendation is automatic; it never accepts/rejects and does not require a manual choice.
         val decisionHandler: ((Boolean) -> Unit)? = null
         val signature = offerFingerprint(pkg, offerContext)
