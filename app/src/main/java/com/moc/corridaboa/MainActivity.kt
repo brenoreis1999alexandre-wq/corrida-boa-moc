@@ -145,7 +145,8 @@ class MainActivity : Activity() {
         val intelligentMode = prefs.getBoolean(Prefs.INTELLIGENT_MODE, false)
         val modeCard = card()
         modeCard.addView(label("MODO INTELIGENTE • MONTES CLAROS", 14, accent, true))
-        modeCard.addView(label("Registra suas escolhas e padrões de paradas observadas por GPS. O mapa da Uber pode mostrar tendências quando o texto estiver legível; não garante demanda nem confirma fim da viagem.", 12, secondary))
+        modeCard.addView(label("Inteligência local automática: cruza oferta, bairros reconhecidos no endereço, dia/horário, feriados e GPS durante o turno. Usa regras locais informadas e histórico real do aparelho; não inventa probabilidade nem garante retorno. GPS/paradas ficam no aparelho e não confirmam demanda ou fim de corrida.", 12, secondary))
+        modeCard.addView(label("Para acompanhar com a tela fechada: permita localização precisa e, depois, ‘Permitir o tempo todo’ nas configurações do Android. Uma notificação fixa aparece enquanto o modo estiver ligado; desligue aqui para parar.", 11, secondary))
         modeCard.addView(actionButton(if (intelligentMode) "Modo Inteligente: LIGADO" else "Modo Inteligente: DESLIGADO") {
             val next = !prefs.getBoolean(Prefs.INTELLIGENT_MODE, false)
             if (next) {
@@ -676,9 +677,13 @@ class MainActivity : Activity() {
         if (!hasForegroundLocationPermission()) {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQUEST_LOCATION)
         } else if (!hasBackgroundLocationPermission() && android.os.Build.VERSION.SDK_INT >= 29) {
+            if (android.os.Build.VERSION.SDK_INT == 29) {
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQUEST_BACKGROUND_LOCATION)
+                return
+            }
             AlertDialog.Builder(this)
                 .setTitle("Permitir localização em segundo plano")
-                .setMessage("O Modo Inteligente usa sua localização para registrar deslocamentos e paradas enquanto você trabalha. No Android 11 ou mais recente, toque em Permitir localização e depois escolha Permitir o tempo todo nas configurações do app.")
+                .setMessage("O Android separa localização durante o uso e em segundo plano. Primeiro autorize localização (selecione Precisa para identificar bairros; aproximada também funciona, com menor precisão). No Android 11 ou mais recente, abra Permissões do app → Localização → Permitir o tempo todo e ative Localização precisa. O rastreamento só ocorre com Modo Inteligente ligado, fica no aparelho e mostra notificação contínua.")
                 .setNegativeButton("Agora não") { _, _ ->
                     if (!hasBackgroundLocationPermission()) {
                         pendingLocationPermissionToggle = false
@@ -731,6 +736,7 @@ class MainActivity : Activity() {
 
     private fun stopSmartTracking() {
         stopService(Intent(this, SmartTrackingService::class.java).setAction(SmartTrackingService.ACTION_STOP))
+        prefs.edit().remove(Prefs.SMART_CURRENT_AREA).remove(Prefs.SMART_IDLE_STARTED_AT).apply()
     }
 
     private fun isServiceEnabled(): Boolean {
@@ -781,6 +787,8 @@ internal object Prefs {
     const val SMART_ACTIVE_TRIP_STARTED = "smart_active_trip_started"
     const val SMART_ACTIVE_TRIP_DESTINATION = "smart_active_trip_destination"
     const val SMART_ENABLE_PENDING = "smart_enable_pending"
+    const val SMART_CURRENT_AREA = "smart_current_area"
+    const val SMART_IDLE_STARTED_AT = "smart_idle_started_at"
     const val DAILY_GROSS_TARGET = "daily_gross_target"
 }
 

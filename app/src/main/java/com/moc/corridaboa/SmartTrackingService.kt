@@ -66,6 +66,9 @@ class SmartTrackingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopLocationUpdates()
+            getSharedPreferences(Prefs.FILE, MODE_PRIVATE).edit()
+                .remove(Prefs.SMART_CURRENT_AREA).remove(Prefs.SMART_IDLE_STARTED_AT)
+                .remove(Prefs.SMART_ACTIVE_TRIP_STARTED).remove(Prefs.SMART_ACTIVE_TRIP_DESTINATION).apply()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -117,21 +120,24 @@ class SmartTrackingService : Service() {
     private fun handleLocation(location: Location, expectedDestination: String, acceptedAt: Long) {
         val now = System.currentTimeMillis()
         val previous = lastLocation
-        if (previous != null && activeTripStartedAt > 0L && lastArea.isNotBlank()) {
+        if (previous != null && lastArea.isNotBlank()) {
             val distance = previous.distanceTo(location)
             val speed = if (location.hasSpeed()) location.speed else distance / ((now - lastSampleAt).coerceAtLeast(1L) / 1000.0).toFloat()
             if (speed < 0.8f && distance < 80f) {
-                if (currentStayStartedAt == 0L) currentStayStartedAt = now
-                if (!currentStaySaved && now - currentStayStartedAt >= MIN_STOP_TO_RECORD_MS) {
+                if (currentStayStartedAt == 0L) currentStayStartedAt = lastSampleAt.takeIf { it > 0L } ?: now
+                getSharedPreferences(Prefs.FILE, MODE_PRIVATE).edit()
+                    .putLong(Prefs.SMART_IDLE_STARTED_AT, currentStayStartedAt).apply()
+                if (activeTripStartedAt > 0L && !currentStaySaved && now - currentStayStartedAt >= MIN_STOP_TO_RECORD_MS) {
                     recordStay(currentStayStartedAt, now, lastArea, expectedDestination, acceptedAt)
                     currentStaySaved = true
                 }
             } else {
-                if (currentStayStartedAt > 0L && !currentStaySaved && now - currentStayStartedAt >= MIN_STOP_TO_RECORD_MS) {
+                if (activeTripStartedAt > 0L && currentStayStartedAt > 0L && !currentStaySaved && now - currentStayStartedAt >= MIN_STOP_TO_RECORD_MS) {
                     recordStay(currentStayStartedAt, now, lastArea, expectedDestination, acceptedAt)
                 }
                 currentStayStartedAt = 0L
                 currentStaySaved = false
+                getSharedPreferences(Prefs.FILE, MODE_PRIVATE).edit().remove(Prefs.SMART_IDLE_STARTED_AT).apply()
             }
         }
         lastLocation = location
@@ -197,6 +203,7 @@ class SmartTrackingService : Service() {
         lastArea = area
         currentStayStartedAt = 0L
         currentStaySaved = false
+        getSharedPreferences(Prefs.FILE, MODE_PRIVATE).edit().putString(Prefs.SMART_CURRENT_AREA, area).remove(Prefs.SMART_IDLE_STARTED_AT).apply()
     }
 
     private fun isDestinationArea(area: String, destination: String): Boolean {
@@ -207,7 +214,7 @@ class SmartTrackingService : Service() {
     }
 
     private fun normalizeArea(text: String): String {
-        val known = listOf("Major Prates", "Ibituruna", "São José", "Unimontes", "Delfino Magalhães", "Canelas", "Jardim São Luiz", "Centro")
+        val known = listOf("Independência", "Planalto", "Jaraguá", "Major Prates", "Ibituruna", "São José", "Unimontes", "Delfino Magalhães", "Canelas", "Jardim São Luiz", "Centro")
         return known.firstOrNull { text.contains(it, ignoreCase = true) } ?: text.trim().takeIf { it.isNotBlank() }.orEmpty()
     }
 
@@ -226,7 +233,7 @@ class SmartTrackingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("RotaLume • Modo Inteligente ativo")
-            .setContentText("Observando localização e paradas para seu histórico local")
+            .setContentText("Localização do turno ativa; registros ficam neste aparelho. Toque para gerenciar.")
             .setContentIntent(open)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)

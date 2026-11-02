@@ -178,14 +178,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
 
     private fun is99Package(pkg: String): Boolean = pkg in NINETY_NINE_PACKAGES
 
-    private fun neighborhoodKey(address: String): String {
-        val knownAreas = listOf(
-            "Major Prates", "Ibituruna", "São José", "Unimontes", "Delfino Magalhães", "Independência",
-            "Canelas", "Jardim São Luiz", "Centro", "Rodoviária", "Hospital"
-        )
-        return knownAreas.firstOrNull { area -> address.contains(area, ignoreCase = true) }
-            ?: "Destino não identificado"
-    }
+    private fun neighborhoodKey(address: String): String = LocalContextAdvisor.areaFromAddress(address)
 
     private fun observeDriverPackage(pkg: String?) {
         if (pkg == null || pkg !in supportedPackages) return
@@ -616,37 +609,48 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             history.observedOffersForArea(destinationArea, weekday, hourOfDay)
         }.getOrDefault(0) else 0
 
-        // User-reported MOC heuristics are deliberately weak priors: they can only
-        // make a borderline calculation more cautious, never upgrade a weak offer.
-        val localPrior = smartMode && (
-            weekday == java.util.Calendar.TUESDAY || weekday == java.util.Calendar.WEDNESDAY ||
-            (destinationArea == "Centro" && hourOfDay < 9)
+        val gpsArea = settings.getString(Prefs.SMART_CURRENT_AREA, "").orEmpty()
+        val idleStarted = settings.getLong(Prefs.SMART_IDLE_STARTED_AT, 0L)
+        val idleMinutes = if (idleStarted > 0L) ((System.currentTimeMillis() - idleStarted) / 60_000L).coerceAtLeast(0L) else null
+        val context = LocalContextAdvisor.evaluate(
+            dropoff, gpsArea, idleMinutes, grossKm, hourOfDay, weekday, localNow
         )
+        val holidayPrior = smartMode && context.holiday != null
+        val localCaution = holidayPrior || weekday == java.util.Calendar.TUESDAY || weekday == java.util.Calendar.WEDNESDAY ||
+            (destinationArea == "Centro" && hourOfDay < 9)
         val exceptionalFare = grossKm >= targetPerKm * 1.25 &&
             grossHour >= targetPerHour * 1.25 && grossMinute >= targetPerMinute * 1.25 && profit > 0.0
-        val recommendationStatus = if (localPrior && !exceptionalFare) when (status) {
+        // Prior can only add caution; strong economics may preserve the fare-only decision,
+        // but no unmeasured destination/return heuristic upgrades a weak offer.
+        val recommendationStatus = if (localCaution && !exceptionalFare) when (status) {
             OverlayManager.GOOD -> OverlayManager.MAYBE
             OverlayManager.MAYBE -> OverlayManager.BAD
             else -> status
         } else status
         val reason = when {
-            profit <= 0.0 -> "Lucro estimado negativo após custos."
-            localPrior && exceptionalFare -> "Boa margem cobre melhor o risco local informado."
-            localPrior && weekday == java.util.Calendar.TUESDAY -> "Prior pessoal: terça fraca; escolha cautelosa."
-            localPrior && weekday == java.util.Calendar.WEDNESDAY -> "Prior pessoal: quarta muito fraca; escolha cautelosa."
-            localPrior -> "Prior pessoal: Centro antes das 9h pode ter retorno incerto."
-            else -> "Pelo cálculo da oferta e custos cadastrados."
+            profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ oferta"
+            localCaution && !exceptionalFare -> "NÃO PEGAR • cautela local (${context.holiday ?: if (weekday == java.util.Calendar.TUESDAY) "terça fraca" else if (weekday == java.util.Calendar.WEDNESDAY) "quarta fraca" else "horário")"
+            status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
+            status == OverlayManager.MAYBE -> "AVALIAR • margem apertada"
+            else -> "NÃO PEGAR • taxas abaixo do piso"
         }
-        val smartNote = if (!smartMode) demandSignal?.let { "Mapa Uber: $it" } else {
-            val sample = if (sampleCount >= 3) " $sampleCount ofertas observadas nessa região/faixa (amostra incompleta, não mede demanda)."
-                else " Sem dados suficientes de ofertas nessa região/faixa."
-            val prior = when {
-                pickupArea == "Independência" && hourOfDay < 12 -> " Prior pessoal: manhã na Independência (hipótese, não demanda medida)."
-                destinationArea == "Unimontes" && weekday in 2..6 && hourOfDay in 8..17 -> " Campus com funcionamento diurno publicado; atividade local não prova chamadas."
-                else -> ""
-            }
-            "$reason$sample$prior"
+        val samples = if (smartMode) runCatching {
+            history.observedOffersForArea(destinationArea, weekday, hourOfDay)
+        }.getOrDefault(0) else 0
+        val evidence = when {
+            samples >= 3 -> "Histórico: $samples ofertas observadas em $destinationArea/$hourOfDay h; amostra de ofertas, não mede chamadas/retorno."
+            else -> "Retorno em $destinationArea não medido; decisão pela oferta/custos e prior local informado."
         }
+        val current = gpsArea.takeIf { it.isNotBlank() }?.let { "GPS: $it" + (idleMinutes?.let { m -> " • parada observada ${m} min" } ?: "") }
+        val smartNote = listOfNotNull(
+            reason,
+            "Destino: $destinationArea",
+            context.holiday?.let { "Feriado: $it" },
+            context.favorable ?: if (pickupArea == "Independência" && hourOfDay in 6..10) "Origem Independência: prior matinal informado" else null,
+            current,
+            if (smartMode) evidence else null,
+            if (!smartMode) demandSignal?.let { "Mapa Uber: $it" } else null
+        ).joinToString(" • ").take(200)
         // Recommendation is automatic; it never accepts/rejects and does not require a manual choice.
         val decisionHandler: ((Boolean) -> Unit)? = null
         val signature = offerFingerprint(pkg, offerContext)
