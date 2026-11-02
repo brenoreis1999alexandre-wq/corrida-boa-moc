@@ -180,7 +180,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
 
     private fun neighborhoodKey(address: String): String {
         val knownAreas = listOf(
-            "Major Prates", "Ibituruna", "São José", "Unimontes", "Delfino Magalhães",
+            "Major Prates", "Ibituruna", "São José", "Unimontes", "Delfino Magalhães", "Independência",
             "Canelas", "Jardim São Luiz", "Centro", "Rodoviária", "Hospital"
         )
         return knownAreas.firstOrNull { area -> address.contains(area, ignoreCase = true) }
@@ -608,23 +608,46 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
         val smartMode = settings.getBoolean(Prefs.INTELLIGENT_MODE, false)
         val destinationArea = neighborhoodKey(dropoff)
+        val pickupArea = neighborhoodKey(pickup)
         val localNow = java.util.Calendar.getInstance()
         val hourOfDay = localNow.get(java.util.Calendar.HOUR_OF_DAY)
         val weekday = localNow.get(java.util.Calendar.DAY_OF_WEEK)
-        val dayName = java.text.SimpleDateFormat("EEEE", java.util.Locale("pt", "BR")).format(localNow.time)
         val sampleCount = if (smartMode) runCatching {
             history.observedOffersForArea(destinationArea, weekday, hourOfDay)
         }.getOrDefault(0) else 0
-        val smartNote = if (!smartMode) demandSignal?.let { "Mapa Uber: $it" } else {
-            when {
-                destinationArea == "Destino não identificado" || sampleCount < 3 ->
-                    "Sem dados suficientes — decisão pelo cálculo."
-                else ->
-                    "Sinal observado: $sampleCount ofertas analisadas nessa região/faixa; histórico incompleto, não mede demanda."
-            }
+
+        // User-reported MOC heuristics are deliberately weak priors: they can only
+        // make a borderline calculation more cautious, never upgrade a weak offer.
+        val localPrior = smartMode && (
+            weekday == java.util.Calendar.TUESDAY || weekday == java.util.Calendar.WEDNESDAY ||
+            (destinationArea == "Centro" && hourOfDay < 9)
+        )
+        val exceptionalFare = grossKm >= targetPerKm * 1.25 &&
+            grossHour >= targetPerHour * 1.25 && grossMinute >= targetPerMinute * 1.25 && profit > 0.0
+        val recommendationStatus = if (localPrior && !exceptionalFare) when (status) {
+            OverlayManager.GOOD -> OverlayManager.MAYBE
+            OverlayManager.MAYBE -> OverlayManager.BAD
+            else -> status
+        } else status
+        val reason = when {
+            profit <= 0.0 -> "Lucro estimado negativo após custos."
+            localPrior && exceptionalFare -> "Boa margem cobre melhor o risco local informado."
+            localPrior && weekday == java.util.Calendar.TUESDAY -> "Prior pessoal: terça fraca; escolha cautelosa."
+            localPrior && weekday == java.util.Calendar.WEDNESDAY -> "Prior pessoal: quarta muito fraca; escolha cautelosa."
+            localPrior -> "Prior pessoal: Centro antes das 9h pode ter retorno incerto."
+            else -> "Pelo cálculo da oferta e custos cadastrados."
         }
-        // Automatic recommendation never accepts or rejects a trip and does not require an
-        // accepted/rejected click. Explicit decision learning remains separate and unused here.
+        val smartNote = if (!smartMode) demandSignal?.let { "Mapa Uber: $it" } else {
+            val sample = if (sampleCount >= 3) " $sampleCount ofertas observadas nessa região/faixa (amostra incompleta, não mede demanda)."
+                else " Sem dados suficientes de ofertas nessa região/faixa."
+            val prior = when {
+                pickupArea == "Independência" && hourOfDay < 12 -> " Prior pessoal: manhã na Independência (hipótese, não demanda medida)."
+                destinationArea == "Unimontes" && weekday in 2..6 && hourOfDay in 8..17 -> " Campus com funcionamento diurno publicado; atividade local não prova chamadas."
+                else -> ""
+            }
+            "$reason$sample$prior"
+        }
+        // Recommendation is automatic; it never accepts/rejects and does not require a manual choice.
         val decisionHandler: ((Boolean) -> Unit)? = null
         val signature = offerFingerprint(pkg, offerContext)
         val now = System.currentTimeMillis()
@@ -642,7 +665,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         OverlayManager.showOfferResult(
             this, fare.money(), fuelCost.money(), monthlyCost.money(), totalCosts.money(), profit.money(),
             totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(), grossHour.money(), grossMinute.money(),
-            kmStatus, hourStatus, minuteStatus, status,
+            kmStatus, hourStatus, minuteStatus, recommendationStatus,
             smartNote = smartNote,
             onUserDecision = decisionHandler
         )

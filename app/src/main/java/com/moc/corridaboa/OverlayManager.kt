@@ -29,7 +29,7 @@ internal object OverlayManager {
     private const val POS_X = "bubble_position_x"
     private const val POS_Y = "bubble_position_y"
     private const val RESULT_VISIBLE_MS = 12_000L
-    private const val DECISION_VISIBLE_MS = RESULT_VISIBLE_MS
+    private const val DECISION_VISIBLE_MS = 45_000L
     private const val BUBBLE_PRICE_VISIBLE_MS = 10_000L
     private var windowManager: WindowManager? = null
     private var bubbleView: TextView? = null
@@ -244,8 +244,7 @@ internal object OverlayManager {
             bubblePriceResetTask = resetPrice
             handler.postDelayed(resetPrice, BUBBLE_PRICE_VISIBLE_MS)
             val accent = statusColor(status)
-            // Binary, cautious display: an intermediate score is not a green light.
-            val decision = when (status) { GOOD -> "PEGAR"; MAYBE, BAD -> "NÃO PEGAR"; else -> "NÃO PEGAR" }
+            val decision = if (status == GOOD) "PEGAR" else "NÃO PEGAR"
             val card = baseResultCard(service, accent)
             val header = LinearLayout(service).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -342,10 +341,11 @@ internal object OverlayManager {
             if (!smartNote.isNullOrBlank()) {
                 card.addView(TextView(service).apply {
                     text = smartNote
-                    textSize = 12f
+                    textSize = 11f
                     setTextColor(Color.rgb(190, 220, 255))
                     setPadding(0, dp(service, 6), 0, 0)
                     gravity = Gravity.CENTER
+                    maxLines = 2
                 })
             }
             card.contentDescription = "$decision. Oferta $offerAmount, custos $totalCostsAmount, lucro estimado $profitAmount; valores brutos $grossPerKm por km, $grossPerHour por hora e $grossPerMinute por minuto"
@@ -460,9 +460,13 @@ internal object OverlayManager {
                 // The result card is still useful if the optional close overlay cannot be added.
             }
             handler.removeCallbacks(removeResultTask)
-            // Always dismiss the result card after at most 12s, regardless of decision UI.
-            handler.removeCallbacks(removeResultTask)
-            handler.postDelayed(removeResultTask, RESULT_VISIBLE_MS)
+            if (decisionButtons != null) {
+                handler.removeCallbacks(removeResultTask)
+                handler.postDelayed(removeResultTask, DECISION_VISIBLE_MS)
+            } else {
+                handler.removeCallbacks(removeResultTask)
+                handler.postDelayed(removeResultTask, RESULT_VISIBLE_MS)
+            }
         } catch (_: Exception) {
             removeResult()
         }

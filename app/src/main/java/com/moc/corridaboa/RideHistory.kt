@@ -116,8 +116,8 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
         }
         return rows
     }
-    /** Count analyzed offers matching the local weekday/hour and destination area.
-     * This is an incomplete, selection-biased app sample, not market demand.
+    /** Offers observed in this local history for an area and local weekday/hour.
+     * This is an incomplete and selection-biased app sample, not market demand.
      */
     fun observedOffersForArea(area: String, weekday: Int, hour: Int, limit: Int = 3000): Int {
         val key = normalizeArea(area)
