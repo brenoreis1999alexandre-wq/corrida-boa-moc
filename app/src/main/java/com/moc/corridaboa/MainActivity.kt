@@ -280,7 +280,7 @@ class MainActivity : Activity() {
         }
         serviceCard.addView(label(statusText, 14, if (monitorOn && accessOn && overlayOn) lime else Color.rgb(255, 205, 92), true))
         serviceCard.addView(space(7))
-        serviceCard.addView(label("A leitura automática só funciona dentro de uma oferta ativa do Uber, 99 ou inDrive.", 13, secondary))
+        serviceCard.addView(label("Como usar: 1) deixe o monitoramento ligado; 2) em Configurar permissões, ative Acessibilidade e a janela flutuante; 3) abra Uber, 99 ou inDrive e aguarde uma oferta aparecer na tela. O RotaLume analisa a oferta sozinho — não precisa pedir por voz nem tocar em aceitar.", 13, secondary))
         serviceCard.addView(space(8))
         serviceCard.addView(actionButton("Configurar permissões") { permissionDialog() })
         content.addView(serviceCard)
