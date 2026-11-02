@@ -616,8 +616,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             dropoff, gpsArea, idleMinutes, grossKm, hourOfDay, weekday, localNow
         )
         val holidayPrior = smartMode && context.holiday != null
-        val localCaution = holidayPrior || weekday == java.util.Calendar.TUESDAY || weekday == java.util.Calendar.WEDNESDAY ||
-            (destinationArea == "Centro" && hourOfDay < 9)
+        val localCaution = smartMode && (holidayPrior || weekday == java.util.Calendar.TUESDAY || weekday == java.util.Calendar.WEDNESDAY ||
+            (destinationArea == "Centro" && hourOfDay < 9))
         val exceptionalFare = grossKm >= targetPerKm * 1.25 &&
             grossHour >= targetPerHour * 1.25 && grossMinute >= targetPerMinute * 1.25 && profit > 0.0
         // Prior can only add caution; strong economics may preserve the fare-only decision,
