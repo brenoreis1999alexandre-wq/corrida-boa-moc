@@ -613,65 +613,60 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val gpsArea = settings.getString(Prefs.SMART_CURRENT_AREA, "").orEmpty()
         val idleStarted = settings.getLong(Prefs.SMART_IDLE_STARTED_AT, 0L)
         val idleMinutes = if (idleStarted > 0L) ((System.currentTimeMillis() - idleStarted) / 60_000L).coerceAtLeast(0L) else null
-        val context = LocalContextAdvisor.evaluate(
-            dropoff, gpsArea, idleMinutes, grossKm, hourOfDay, weekday, localNow
-        )
-        // Calendar/day priors are context only: they may explain a borderline call, never
-        // turn an economically GOOD offer into a rejection. Do not pretend they measure demand.
-        val localCaution = smartMode && (context.holiday != null || weekday == java.util.Calendar.TUESDAY ||
-            weekday == java.util.Calendar.WEDNESDAY || (destinationArea == "Centro" && hourOfDay < 9))
-        val favorableDestination = smartMode && context.favorable != null
-        val favorablePickup = smartMode && LocalContextAdvisor.favorableMorningPickup(pickup, gpsArea, hourOfDay)
-        val favorableBorderline = smartMode && LocalContextAdvisor.shouldLeanTakeBorderline(
-            profit, status == OverlayManager.MAYBE, pickup, gpsArea, hourOfDay, favorableDestination
-        )
-        val favorableReason = LocalContextAdvisor.pickupPriorReason(pickup, gpsArea, hourOfDay)
-            ?: LocalContextAdvisor.destinationPriorReason(favorableDestination)
-        // A known, user-supplied local prior can tip a positive, borderline fare only;
-        // it never overrides a BAD rate or claims an unmeasured return chance.
-        // A tiny local statistical learner uses only captured offer economics, not
-        // manual labels or inferred completed trips. It can move a borderline call
-        // by one step only, after five comparable observations; hard financial
-        // rejections and clearly good offers are never overridden.
-        val learnedStatus = OfferLearner.adjust(
-            status, OverlayManager.GOOD, OverlayManager.MAYBE, profit,
-            learnedPattern, floorPerKm, floorPerHour
-        )
+        val localMinute = localNow.get(java.util.Calendar.MINUTE)
+        val context = LocalContextAdvisor.evaluate(dropoff, hourOfDay, localMinute, weekday, localNow)
+        val currentArea = gpsArea.ifBlank { pickupArea }
+        val currentProfile = LocalContextAdvisor.level(currentArea, hourOfDay, localMinute, weekday, context.holiday != null)
+        val destinationProfile = context.level
+        val holiday = context.holiday
+        val hasCalendarEvent = smartMode && hasRelevantLocalCalendarEvent(localNow)
+        val favorableDestination = destinationProfile == LocalContextAdvisor.Level.HIGH
+        val favorablePickup = currentProfile == LocalContextAdvisor.Level.HIGH
+        val favorableBorderline = profit > 0.0 && (favorableDestination || (status == OverlayManager.MAYBE && (favorablePickup || hasCalendarEvent)))
+        val learnedStatus = OfferLearner.adjust(status, OverlayManager.GOOD, OverlayManager.MAYBE, profit, learnedPattern, floorPerKm, floorPerHour)
         val learnedDownside = learnedStatus == OverlayManager.BAD && status == OverlayManager.MAYBE
         val learnedUpside = learnedStatus == OverlayManager.GOOD && status == OverlayManager.MAYBE
         val recommendationStatus = when {
+            profit <= 0.0 -> OverlayManager.BAD
+            status == OverlayManager.GOOD -> OverlayManager.GOOD
             learnedDownside -> OverlayManager.BAD
-            learnedUpside || favorableBorderline -> OverlayManager.GOOD
-            status == OverlayManager.MAYBE -> OverlayManager.BAD // Expose a clear NO PEGAR when neither margin nor local prior supports taking it.
-            else -> status
+            favorableBorderline || learnedUpside -> OverlayManager.GOOD
+            status == OverlayManager.MAYBE -> OverlayManager.BAD
+            else -> OverlayManager.BAD
         }
-        val weakMetrics = buildList {
-            if (kmStatus == OverlayManager.BAD) add("R$${String.format(java.util.Locale("pt", "BR"), "%.2f", grossKm)}/km abaixo do piso")
-            if (hourStatus == OverlayManager.BAD) add("R$${String.format(java.util.Locale("pt", "BR"), "%.2f", grossHour)}/h abaixo do piso")
-            if (minuteStatus == OverlayManager.BAD) add("R$${String.format(java.util.Locale("pt", "BR"), "%.2f", grossMinute)}/min abaixo do piso")
-        }.joinToString("; ")
-        val reason = when {
-            profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ oferta"
+        val strategyReason = when {
+            profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ tarifa"
+            status == OverlayManager.GOOD -> "PEGAR • oferta cobre os custos e atinge os limites"
+            favorableBorderline && favorableDestination -> "COMPENSA COM RETORNO • faixa forte no perfil local; retorno não garantido"
+            favorableBorderline && favorablePickup -> "PEGAR • sair da área atual em faixa forte"
+            favorableBorderline && hasCalendarEvent -> "PEGAR • oferta positiva e evento local no calendário"
+            learnedUpside -> "PEGAR • padrão local de ofertas observado"
             learnedDownside -> "NÃO PEGAR • padrão observado de margem fraca"
-            recommendationStatus == OverlayManager.GOOD && learnedUpside -> "PEGAR • padrão observado favorável; lucro estimado positivo"
-            recommendationStatus == OverlayManager.GOOD && status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
-            favorableBorderline -> "PEGAR • lucro positivo; ${favorableReason ?: "prior local informado"}"
-            else -> "NÃO PEGAR • ${weakMetrics.ifBlank { "margem apertada" }}"
+            destinationProfile == LocalContextAdvisor.Level.LOW -> "NÃO PEGAR • destino em faixa fraca do perfil local"
+            else -> "NÃO PEGAR • indicadores abaixo dos pisos cadastrados"
         }
-        val learningNote = if (sampleCount >= OfferLearner.MIN_SAMPLES)
-            "Aprendizado: $sampleCount ofertas comparáveis (não viagens concluídas)"
-        else null
-        // Keep the overlay actionable: neighborhood-level route and one short rationale only.
-        // Long street names, GPS, idle time, and raw sample counts remain out of the card.
-        val routeSummary = if (pickupArea.isNotBlank() && destinationArea.isNotBlank())
-            "ROTA: $pickupArea → $destinationArea" else ""
+        val sampleCount = learnedPattern?.observations ?: 0
+        val route = "ROTA: $pickupArea → $destinationArea"
+        val dayLabel = when {
+            holiday != null -> "FERIADO: $holiday"
+            weekday == java.util.Calendar.SUNDAY -> "DIA ESPECIAL: domingo"
+            weekday == java.util.Calendar.SATURDAY -> "DIA ESPECIAL: sábado"
+            else -> null
+        }
+        val profileLabel = when(destinationProfile) {
+            LocalContextAdvisor.Level.HIGH -> "Destino: faixa forte (perfil local informado)"
+            LocalContextAdvisor.Level.MEDIUM -> "Destino: faixa média (perfil local informado)"
+            LocalContextAdvisor.Level.LOW -> "Destino: faixa fraca (perfil local informado)"
+            LocalContextAdvisor.Level.UNKNOWN -> "Destino: sem perfil cadastrado"
+        }
         val smartNote = listOfNotNull(
-            reason,
-            learningNote,
-            routeSummary.takeIf { it.isNotBlank() },
-            context.holiday?.let { "Feriado: $it (contexto, não determina a decisão)" },
-            context.favorable?.let { "Prior local informado: ${it.substringBefore(':')}" }
-        ).joinToString(" • ").take(180)
+            strategyReason,
+            route.takeIf { pickupArea != "Destino não identificado" || destinationArea != "Destino não identificado" },
+            dayLabel,
+            if (hasCalendarEvent) "Evento relacionado no calendário local" else null,
+            if (sampleCount >= OfferLearner.MIN_SAMPLES) "Aprendizado: $sampleCount ofertas semelhantes" else null,
+            profileLabel
+        ).joinToString(" • ").take(240)
         // Recommendation is automatic; it never accepts/rejects and does not require a manual choice.
         val decisionHandler: ((Boolean) -> Unit)? = null
         val signature = offerFingerprint(pkg, offerContext)
@@ -694,6 +689,26 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             smartNote = smartNote,
             onUserDecision = decisionHandler
         )
+    }
+
+    private fun hasRelevantLocalCalendarEvent(now: java.util.Calendar): Boolean {
+        if (!settings.getBoolean(Prefs.CALENDAR_CONTEXT_ENABLED, false) || androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) return false
+        val start = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.HOUR_OF_DAY,0); set(java.util.Calendar.MINUTE,0); set(java.util.Calendar.SECOND,0); set(java.util.Calendar.MILLISECOND,0) }.timeInMillis
+        val end = (now.clone() as java.util.Calendar).apply { set(java.util.Calendar.HOUR_OF_DAY,23); set(java.util.Calendar.MINUTE,59); set(java.util.Calendar.SECOND,59); set(java.util.Calendar.MILLISECOND,999) }.timeInMillis
+        val uri = android.provider.CalendarContract.Instances.CONTENT_URI.buildUpon().appendPath(start.toString()).appendPath(end.toString()).build()
+        val projection = arrayOf(android.provider.CalendarContract.Instances.TITLE, android.provider.CalendarContract.Instances.EVENT_LOCATION)
+        return try {
+            contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val title = cursor.getString(0).orEmpty().lowercase(java.util.Locale.ROOT)
+                    val location = cursor.getString(1).orEmpty().lowercase(java.util.Locale.ROOT)
+                    val relevant = listOf("show", "festa", "faculdade", "aula", "evento", "feira", "congresso", "unimontes", "funorte", "ifnmg", "hospital", "igreja", "cemiterio").any(title::contains)
+                    val local = location.isBlank() || location.contains("montes claros") || title.contains("montes claros")
+                    if (relevant && local) return@use true
+                }
+                false
+            } ?: false
+        } catch (_: SecurityException) { false } catch (_: Exception) { false }
     }
 
     private fun shouldDisplay(signature: String): Boolean {
