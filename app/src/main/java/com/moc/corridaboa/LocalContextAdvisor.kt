@@ -8,6 +8,25 @@ import java.util.Locale
 internal object LocalContextAdvisor {
     data class Result(val area: String, val holiday: String?, val caution: String?, val favorable: String?)
 
+    /** User-provided local prior: a positive, borderline offer leaving/starting in Independência in the morning may be preferable to remaining idle. */
+    fun favorableMorningPickup(pickup: String, currentArea: String, hour: Int): Boolean {
+        if (hour !in 6..10) return false
+        return listOf(pickup, currentArea).any {
+            normalize(it).contains("independencia")
+        }
+    }
+
+    /** Only a positive, borderline offer can be tipped by this explicitly supplied local prior. */
+    fun shouldLeanTakeBorderline(profit: Double, borderline: Boolean, pickup: String,
+                                 currentArea: String, hour: Int, favorableDestination: Boolean): Boolean =
+        profit > 0.0 && borderline && (favorableDestination || favorableMorningPickup(pickup, currentArea, hour))
+
+    fun pickupPriorReason(pickup: String, currentArea: String, hour: Int): String? =
+        if (favorableMorningPickup(pickup, currentArea, hour)) "Independência de manhã (prior local informado)" else null
+
+    fun destinationPriorReason(favorableDestination: Boolean): String? =
+        if (favorableDestination) "Destino Independência de manhã (prior local informado)" else null
+
     fun areaFromAddress(address: String): String {
         val value = normalize(address)
         // Street-level aliases are deliberately limited to the user's supplied examples.

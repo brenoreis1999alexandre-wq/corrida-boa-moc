@@ -621,7 +621,12 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val localCaution = smartMode && (context.holiday != null || weekday == java.util.Calendar.TUESDAY ||
             weekday == java.util.Calendar.WEDNESDAY || (destinationArea == "Centro" && hourOfDay < 9))
         val favorableDestination = smartMode && context.favorable != null
-        val favorableBorderline = favorableDestination && profit > 0.0 && status == OverlayManager.MAYBE
+        val favorablePickup = smartMode && LocalContextAdvisor.favorableMorningPickup(pickup, gpsArea, hourOfDay)
+        val favorableBorderline = smartMode && LocalContextAdvisor.shouldLeanTakeBorderline(
+            profit, status == OverlayManager.MAYBE, pickup, gpsArea, hourOfDay, favorableDestination
+        )
+        val favorableReason = LocalContextAdvisor.pickupPriorReason(pickup, gpsArea, hourOfDay)
+            ?: LocalContextAdvisor.destinationPriorReason(favorableDestination)
         // A known, user-supplied local prior can tip a positive, borderline fare only;
         // it never overrides a BAD rate or claims an unmeasured return chance.
         // A tiny local statistical learner uses only captured offer economics, not
@@ -637,6 +642,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val recommendationStatus = when {
             learnedDownside -> OverlayManager.BAD
             learnedUpside || favorableBorderline -> OverlayManager.GOOD
+            status == OverlayManager.MAYBE -> OverlayManager.BAD // Expose a clear NO PEGAR when neither margin nor local prior supports taking it.
             else -> status
         }
         val weakMetrics = buildList {
@@ -649,9 +655,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             learnedDownside -> "NÃO PEGAR • padrão observado de margem fraca"
             recommendationStatus == OverlayManager.GOOD && learnedUpside -> "PEGAR • padrão observado favorável; lucro estimado positivo"
             recommendationStatus == OverlayManager.GOOD && status == OverlayManager.GOOD -> "PEGAR • boa relação oferta/custo"
-            favorableBorderline -> "PEGAR • lucro positivo; prior local informado"
-            status == OverlayManager.MAYBE -> "AVALIAR • ${weakMetrics.ifBlank { "margem apertada" }}"
-            else -> "NÃO PEGAR • ${weakMetrics.ifBlank { "taxas abaixo do piso" }}"
+            favorableBorderline -> "PEGAR • lucro positivo; ${favorableReason ?: "prior local informado"}"
+            else -> "NÃO PEGAR • ${weakMetrics.ifBlank { "margem apertada" }}"
         }
         val learningNote = if (sampleCount >= OfferLearner.MIN_SAMPLES)
             "Aprendizado: $sampleCount ofertas comparáveis (não viagens concluídas)"

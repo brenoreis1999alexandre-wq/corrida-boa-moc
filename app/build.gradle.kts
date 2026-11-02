@@ -11,8 +11,8 @@ android {
         applicationId = "com.moc.corridaboa"
         minSdk = 26
         targetSdk = 35
-        versionCode = 45
-        versionName = "1.8.9"
+        versionCode = 46
+        versionName = "1.9.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
