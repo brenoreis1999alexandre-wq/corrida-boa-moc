@@ -534,7 +534,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         // of the same offer. Use its stable fare and two route distances for deduplication.
         listOf(pkg, offer.fare, offer.distancesKm.getOrNull(0), offer.distancesKm.getOrNull(1)).joinToString("|")
 
-    private fun analyzeScreen(pkg: String, rawText: String, manual: Boolean, demandRawText: String = rawText) {
+    private fun analyzeScreen(
+        pkg: String, rawText: String, manual: Boolean, demandRawText: String = rawText,
+        resolvedDestinationArea: String? = null, refreshOnly: Boolean = false
+    ) {
         if (!monitoringEnabled() || pkg !in supportedPackages) return
         val fullText = rawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         val demandText = demandRawText.replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
@@ -602,7 +605,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             else -> OverlayManager.BAD
         }
         val smartMode = settings.getBoolean(Prefs.INTELLIGENT_MODE, false)
-        val destinationArea = neighborhoodKey(dropoff)
+        val destinationArea = resolvedDestinationArea
+            ?: OnlineNeighborhoodResolver.cachedArea(this, dropoff)
+            ?: neighborhoodKey(dropoff)
         val pickupArea = neighborhoodKey(pickup)
         val localNow = java.util.Calendar.getInstance()
         val hourOfDay = localNow.get(java.util.Calendar.HOUR_OF_DAY)
@@ -618,7 +623,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val context = LocalContextAdvisor.evaluate(dropoff, hourOfDay, localMinute, weekday, localNow)
         val currentArea = gpsArea.ifBlank { pickupArea }
         val currentProfile = LocalContextAdvisor.level(currentArea, hourOfDay, localMinute, weekday, context.holiday != null)
-        val destinationProfile = context.level
+        val destinationProfile = LocalContextAdvisor.level(destinationArea, hourOfDay, localMinute, weekday, context.holiday != null)
         val holiday = context.holiday
         // Driver's local rule: before 10:30, never recommend a trip whose destination is Centro.
         // Apply the same policy to Uber and 99; the phone's local clock needs no extra permission.
@@ -682,8 +687,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val signature = offerFingerprint(pkg, offerContext)
         val now = System.currentTimeMillis()
         val duplicate = signature == lastSignature && now - lastAnnouncedAt < 180_000
-        if (duplicate && !manual) return
-        if (!duplicate) {
+        if (duplicate && !manual && !refreshOnly) return
+        if (!duplicate && !refreshOnly) {
             lastSignature = signature
             lastAnnouncedAt = now
             val record = RideRecord(
@@ -699,6 +704,16 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             smartNote = smartNote,
             onUserDecision = decisionHandler
         )
+        // Start address lookup only after the instant offer card and financial recommendation are shown.
+        // A late result refreshes only if this exact offer is still active; it never creates another history row.
+        if (!refreshOnly && destinationProfile == LocalContextAdvisor.Level.UNKNOWN && dropoff.isNotBlank()) {
+            OnlineNeighborhoodResolver.resolve(this, dropoff) { area ->
+                if (area != null && lastSignature == signature && lastVisibleOfferFingerprint == signature && !noOfferResetPending && monitoringEnabled()) {
+                    analyzeScreen(pkg, rawText, manual = false, demandRawText = demandRawText,
+                        resolvedDestinationArea = area, refreshOnly = true)
+                }
+            }
+        }
     }
 
     private fun hasRelevantLocalCalendarEvent(now: java.util.Calendar, pickupArea: String, destinationArea: String, currentArea: String): Boolean {
