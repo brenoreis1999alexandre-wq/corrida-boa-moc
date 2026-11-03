@@ -425,11 +425,13 @@ class MainActivity : Activity() {
         content.addView(calendarCard)
         content.addView(space(9))
         val todayStart = startOfToday()
-        val todays = uniqueRecentOffers(RideHistory(this).between(todayStart, startOfTomorrow()))
-        val gross = todays.sumOf { it.fare }
-        val net = todays.sumOf { it.net }
-        val km = todays.sumOf { it.pickupKm + it.tripKm }
-        val minutes = todays.sumOf { it.minutes }
+        val rideHistory = RideHistory(this)
+        val todays = uniqueRecentOffers(rideHistory.between(todayStart, startOfTomorrow()))
+        val completedToday = rideHistory.completedBetween(todayStart, startOfTomorrow())
+        val gross = completedToday.sumOf { it.fare }
+        val net = completedToday.sumOf { it.net }
+        val km = completedToday.sumOf { it.pickupKm + it.tripKm }
+        val minutes = completedToday.sumOf { it.minutes }
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -460,8 +462,9 @@ class MainActivity : Activity() {
 
         val dailyCard = card()
         dailyCard.addView(label("RESUMO DE HOJE", 13, accent, true))
-        dailyCard.addView(label(net.money(), 34, pale, true))
-        dailyCard.addView(label("Lucro estimado após custos cadastrados", 13, secondary))
+        dailyCard.addView(label(gross.money(), 34, pale, true))
+        dailyCard.addView(label("Faturamento bruto das corridas marcadas como feitas", 13, secondary))
+        dailyCard.addView(label("Lucro estimado após custos cadastrados: ${net.money()}", 12, secondary))
         val dailyTarget = prefs.getFloat(Prefs.DAILY_GROSS_TARGET, 300f).toDouble()
         val targetInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
@@ -484,8 +487,8 @@ class MainActivity : Activity() {
             }
         })
         val progressPct = if (dailyTarget > 0) (gross / dailyTarget * 100).toInt().coerceIn(0, 100) else 0
-        dailyCard.addView(label("Progresso estimado: ${gross.money()} de ${dailyTarget.money()} (${progressPct}%)", 13, accent, true))
-        dailyCard.addView(label("Baseado apenas nas tarifas de ofertas analisadas hoje — não comprova corrida concluída nem dinheiro recebido. Não é lucro; o valor abaixo desconta somente custos cadastrados.", 11, secondary))
+        dailyCard.addView(label("Meta bruta: ${completedToday.sumOf { it.fare }.money()} de ${dailyTarget.money()} (${progressPct}%) • Falta: ${(dailyTarget - completedToday.sumOf { it.fare }).coerceAtLeast(0.0).money()}", 13, accent, true))
+        dailyCard.addView(label("Só entram aqui as corridas que você marcar como feitas no Histórico. Ofertas analisadas ficam separadas e não contam no faturamento.", 11, secondary))
         val progressBar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = progressPct
@@ -493,17 +496,19 @@ class MainActivity : Activity() {
         }
         dailyCard.addView(progressBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(9)))
         dailyCard.addView(space(7))
-        dailyCard.addView(label("LUCRO ESTIMADO DAS OFERTAS APÓS CUSTOS CADASTRADOS", 12, secondary))
-        dailyCard.addView(label("Lucro estimado após custos cadastrados", 13, secondary))
-        dailyCard.addView(space(12))
+        dailyCard.addView(label("CORRIDAS MARCADAS COMO FEITAS", 12, secondary))
         dailyCard.addView(metricRow(listOf(
-            "OFERTAS" to todays.size.toString(),
-            "BRUTO" to gross.money(),
-            "KM" to "${km.oneDecimal()}"
+            "FEITAS" to completedToday.size.toString(),
+            "BRUTO REALIZADO" to gross.money(),
+            "KM" to km.oneDecimal()
         )))
         dailyCard.addView(space(7))
-        dailyCard.addView(label("Tempo das ofertas: ${minutes.oneDecimal()} min", 12, secondary))
-        dailyCard.addView(label("Estimativa das ofertas analisadas, não corridas feitas; repetições em até 3 min não contam duas vezes.", 11, secondary))
+        dailyCard.addView(label("Tempo das corridas feitas: ${minutes.oneDecimal()} min • lucro estimado após custos: ${net.money()}", 12, secondary))
+        val offersGross = todays.sumOf { it.fare }
+        dailyCard.addView(space(9))
+        dailyCard.addView(label("OFERTAS ANALISADAS (NÃO CONTAM NO FATURAMENTO)", 12, secondary, true))
+        dailyCard.addView(label("${todays.size} ofertas • ${offersGross.money()} oferecidos • ${todays.sumOf { it.pickupKm + it.tripKm }.oneDecimal()} km • ${todays.sumOf { it.minutes }.oneDecimal()} min", 12, secondary))
+        dailyCard.addView(label("Marque as viagens realmente feitas no Histórico para atualizar o resumo e a meta.", 11, secondary))
         content.addView(dailyCard)
         content.addView(space(10))
         val calcCard = card()
@@ -569,16 +574,29 @@ class MainActivity : Activity() {
             else -> history.all()
         }
         val filtered = uniqueRecentOffers(filteredRaw)
+        val completed = filteredRaw.filter { it.completed }
         val stats = card()
-        stats.addView(label("LUCRO ESTIMADO DAS OFERTAS", 12, accent, true))
-        stats.addView(label(filtered.sumOf { it.net }.money(), 29, pale, true))
+        stats.addView(label("RESUMO DAS CORRIDAS MARCADAS COMO FEITAS", 12, accent, true))
+        stats.addView(label(completed.sumOf { it.net }.money(), 29, pale, true))
         stats.addView(metricRow(listOf(
-            "OFERTAS" to filtered.size.toString(),
-            "KM" to filtered.sumOf { it.pickupKm + it.tripKm }.oneDecimal(),
-            "TEMPO" to "${filtered.sumOf { it.minutes }.oneDecimal()} min"
+            "FEITAS" to completed.size.toString(),
+            "BRUTO" to completed.sumOf { it.fare }.money(),
+            "KM" to completed.sumOf { it.pickupKm + it.tripKm }.oneDecimal()
         )))
         content.addView(stats)
-        content.addView(label("Leituras repetidas da mesma oferta em até 3 min não entram duas vezes nas somas.", 11, secondary))
+        content.addView(label("As ofertas só entram no resumo quando você marcar a corrida como feita. O registro é local e pode ser desmarcado.", 11, secondary))
+        content.addView(space(8))
+        content.addView(actionButton("Desmarcar todas deste período") {
+            AlertDialog.Builder(this)
+                .setTitle("Desmarcar corridas feitas?")
+                .setMessage("As ofertas continuam no histórico; apenas deixam de contar como corridas concluídas.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Desmarcar") { _, _ ->
+                    filtered.filter { it.completed }.forEach { history.markCompleted(it.id, false) }
+                    renderTab()
+                }.show()
+        }.apply { backgroundTintList = android.content.res.ColorStateList.valueOf(surface2); setTextColor(pale) })
+        content.addView(space(7))
         content.addView(space(8))
         content.addView(actionButton("Apagar histórico") {
             AlertDialog.Builder(this)
@@ -836,6 +854,14 @@ class MainActivity : Activity() {
         card.addView(label("Destino: ${r.dropoff.ifBlank { "não identificado" }}", 12, secondary))
         card.addView(label("Gasolina: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}  •  Total: ${(r.fuelCost + r.monthlyCost).money()}", 12, pale))
         card.addView(label("Oferta bruta: ${r.grossKm.money()}/km  •  ${r.grossHour.money()}/h  •  ${r.grossMinute.money()}/min", 14, secondary))
+        card.addView(actionButton(if (r.completed) "✓ Corrida feita — toque para desmarcar" else "Marcar como corrida feita") {
+            RideHistory(this).markCompleted(r.id, !r.completed)
+            Toast.makeText(this, if (r.completed) "Corrida desmarcada" else "Corrida adicionada ao resumo do dia", Toast.LENGTH_SHORT).show()
+            renderTab()
+        }.apply {
+            backgroundTintList = android.content.res.ColorStateList.valueOf(if (r.completed) lime else accent)
+            setTextColor(bg)
+        })
         return card
     }
 
