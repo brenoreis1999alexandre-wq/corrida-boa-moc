@@ -74,7 +74,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     captureVisibleScreen(manual = false, sourcePackage = activePackage)
                 }
             }
-            handler.postDelayed(this, 1_400)
+            handler.postDelayed(this, 800)
         }
     }
     private val ninetyNinePollLoop = object : Runnable {
@@ -103,9 +103,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 }
             }
             handler.postDelayed(this, when {
-                pkg != null && is99Package(pkg) -> 1_200L
-                pkg == "com.ubercab.driver" -> 2_500L
-                else -> 2_000L
+                pkg != null && is99Package(pkg) -> 700L
+                pkg == "com.ubercab.driver" -> 700L
+                else -> 1_000L
             })
         }
     }
@@ -123,8 +123,11 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
             val continuous = settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
             OverlayManager.setOcrMode(this, continuous)
-            handler.post(ninetyNinePollLoop)
-            if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) handler.post(continuousOcrLoop)
+            if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                handler.post(continuousOcrLoop)
+            } else {
+                handler.post(ninetyNinePollLoop)
+            }
         } else {
             handler.removeCallbacks(resetOfferStateTask)
             lastSignature = ""
@@ -216,7 +219,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 if (requestGeneration == screenGeneration) {
                     captureVisibleScreen(manual = false, sourcePackage = pkg, force = true)
                 }
-            }, 120)
+            }, 35)
         } else {
             captureVisibleScreen(manual = false, sourcePackage = pkg)
         }
@@ -307,7 +310,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             if (force || manual) pendingCapture = PendingCapture(manual, sourcePackage)
             return
         }
-        if (!manual && !force && now - lastOcrRequestAt < 1_100) return
+        if (!manual && !force && now - lastOcrRequestAt < 300) return
         screenshotInFlight = true
         lastOcrRequestAt = now
         val requestGeneration = screenGeneration
