@@ -622,9 +622,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val holiday = context.holiday
         // Driver's local rule: before 10:30, never recommend a trip whose destination is Centro.
         // Apply the same policy to Uber and 99; the phone's local clock needs no extra permission.
-        val centerBefore1030 = LocalContextAdvisor.centerBlocked(destinationArea, hourOfDay, localMinute)
+        val centerBelowLocalRate = LocalContextAdvisor.centerBlocked(destinationArea, hourOfDay, localMinute, grossKm)
         val centerOpenAndProfitable = destinationArea.equals("Centro", ignoreCase = true) &&
-            !centerBefore1030 && profit > 0.0
+            !centerBelowLocalRate && profit > 0.0
         val hasCalendarEvent = smartMode && hasRelevantLocalCalendarEvent(localNow, pickupArea, destinationArea, gpsArea)
         val favorableDestination = destinationProfile == LocalContextAdvisor.Level.HIGH
         val favorablePickup = currentProfile == LocalContextAdvisor.Level.HIGH
@@ -633,7 +633,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val learnedDownside = learnedStatus == OverlayManager.BAD && status == OverlayManager.MAYBE
         val learnedUpside = learnedStatus == OverlayManager.GOOD && status == OverlayManager.MAYBE
         val recommendationStatus = when {
-            centerBefore1030 -> OverlayManager.BAD
+            centerBelowLocalRate -> OverlayManager.BAD
             centerOpenAndProfitable -> OverlayManager.GOOD
             profit <= 0.0 -> OverlayManager.BAD
             status == OverlayManager.GOOD -> OverlayManager.GOOD
@@ -643,8 +643,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             else -> OverlayManager.BAD
         }
         val strategyReason = when {
-            centerBefore1030 -> "NÃO PEGAR • destino no Centro antes das 10h30; priorize bairro a bairro"
-            centerOpenAndProfitable -> "PEGAR • destino no Centro liberado após 10h30 e com lucro estimado positivo"
+            centerBelowLocalRate -> "NÃO PEGAR • Centro abaixo do piso local de R$${String.format(java.util.Locale("pt", "BR"), "%.2f", LocalContextAdvisor.centerMinimumRate(hourOfDay))}/km"
+            centerOpenAndProfitable -> "PEGAR • Centro acima do piso local de R$${String.format(java.util.Locale("pt", "BR"), "%.2f", LocalContextAdvisor.centerMinimumRate(hourOfDay))}/km e lucro estimado positivo"
             profit <= 0.0 -> "NÃO PEGAR • custo estimado ≥ tarifa"
             status == OverlayManager.GOOD -> "PEGAR • oferta cobre os custos e atinge os limites"
             favorableBorderline && favorableDestination -> "COMPENSA COM RETORNO • faixa forte no perfil local; retorno não garantido"
