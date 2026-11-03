@@ -11,44 +11,36 @@ internal object LocalContextAdvisor {
 
     fun areaFromAddress(address: String): String {
         val parts = address.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-        val cityOrState = setOf("montes claros", "mg", "brasil", "brazil")
-        val neighborhood = parts.asReversed().firstOrNull { part ->
-            val n = normalize(part)
-            n !in cityOrState && !n.matches(Regex("[0-9]+(?:[.-][0-9]+)?")) &&
-                !n.matches(Regex("[0-9]+[a-z]?"))
+        val nonPlace = setOf("montes claros", "mg", "brasil", "brazil")
+        fun isNumber(part: String): Boolean = normalize(part).matches(Regex("[0-9]+(?:[.-][0-9]+)?")) ||
+            normalize(part).matches(Regex("[0-9]+[a-z]?")) || normalize(part) in setOf("s/n", "sn", "nº", "no")
+        // Uber/99 route labels are street, neighborhood, city. Use the first meaningful
+        // comma segment after the street, skipping house numbers and municipality suffixes.
+        val neighborhood = parts.drop(1).firstOrNull { part ->
+            normalize(part) !in nonPlace && !isNumber(part) && !normalize(part).contains("montes claros")
         }
-        val candidate = neighborhood ?: address
+        val candidate = neighborhood ?: parts.lastOrNull().orEmpty().ifBlank { address }
         val value = normalize(candidate)
-        val anchors = listOf(
-            "montes claros shopping" to "Montes Claros Shopping",
-            "ibit uruna center" to "Ibituruna Center",
-            "ibituruna center" to "Ibituruna Center",
-            "aroldo tourinho" to "Hospitais",
-            "dilson godinho" to "Hospitais",
-            "santa casa" to "Hospitais",
-            "hospital" to "Hospitais",
-            "rodoviaria" to "Rodoviária/Terminal",
-            "terminal" to "Rodoviária/Terminal",
-            "cemiterio" to "Cemitérios",
-            "igreja" to "Igrejas",
-            "unimontes" to "Unimontes",
-            "campus" to "Unimontes",
-            "barcelona park" to "Barcelona Park",
-            "rua benedito teixeira" to "Planalto",
-            "villetfort" to "Jaraguá",
-            "magalhaes pinto" to "Jaraguá"
-        )
-        anchors.firstOrNull { value.contains(normalize(it.first)) }?.let { return it.second }
         val areas = listOf(
             "Independência", "Major Prates", "Centro", "Ibituruna", "São José", "Unimontes",
             "Delfino Magalhães", "Jardim São Luiz", "Planalto", "Canelas", "Alcides Rabelo",
             "Vila Guilhermina", "São Judas Tadeu", "Edgar Pereira", "Renascença", "Maracanã",
             "Morrinhos", "Jardim São Geraldo", "Jardim Olímpico", "Nova Esperança", "Santos Reis",
             "Jaraguá", "Barcelona Park", "Cemitérios", "Hospitais", "Igrejas", "Rodoviária/Terminal",
-            "Montes Claros Shopping", "Ibituruna Center"
+            "Montes Claros Shopping", "Ibituruna Center", "Conjunto Residencial JK", "Jardim Brasil"
         )
         areas.firstOrNull { normalize(it) == value }?.let { return it }
-        return neighborhood?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotBlank() }
+        val anchors = listOf(
+            "montes claros shopping" to "Montes Claros Shopping",
+            "ibit uruna center" to "Ibituruna Center", "ibituruna center" to "Ibituruna Center",
+            "aroldo tourinho" to "Hospitais", "dilson godinho" to "Hospitais", "santa casa" to "Hospitais",
+            "hospital" to "Hospitais", "rodoviaria" to "Rodoviária/Terminal", "terminal" to "Rodoviária/Terminal",
+            "cemiterio" to "Cemitérios", "igreja" to "Igrejas", "unimontes" to "Unimontes", "campus" to "Unimontes",
+            "barcelona park" to "Barcelona Park", "rua benedito teixeira" to "Planalto",
+            "villetfort" to "Jaraguá", "magalhaes pinto" to "Jaraguá"
+        )
+        anchors.firstOrNull { value.contains(normalize(it.first)) }?.let { return it.second }
+        return candidate.replace(Regex("\\s+"), " ").trim().takeIf { it.isNotBlank() }
             ?: "Destino não identificado"
     }
 
