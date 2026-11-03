@@ -10,20 +10,27 @@ internal object LocalContextAdvisor {
     data class Result(val area: String, val holiday: String?, val level: Level, val reason: String?)
 
     fun areaFromAddress(address: String): String {
-        val value = normalize(address)
+        val parts = address.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val cityOrState = setOf("montes claros", "mg", "brasil", "brazil")
+        val neighborhood = parts.asReversed().firstOrNull { part ->
+            val n = normalize(part)
+            n !in cityOrState && !n.matches(Regex("[0-9]+(?:[.-][0-9]+)?")) &&
+                !n.matches(Regex("[0-9]+[a-z]?"))
+        }
+        val candidate = neighborhood ?: address
+        val value = normalize(candidate)
         val anchors = listOf(
-            "Montes Claros Shopping" to "Montes Claros Shopping",
-            "Ibituruna Center" to "Ibituruna Center",
-            "Aroldo Tourinho" to "Hospitais",
-            "Dilson Godinho" to "Hospitais",
-            "Santa Casa" to "Hospitais",
-            "Rodoviaria" to "Rodoviária/Terminal",
-            "terminal rodoviario" to "Rodoviária/Terminal",
-            "cemiterio" to "Cemitérios",
-            "igreja" to "Igrejas",
+            "montes claros shopping" to "Montes Claros Shopping",
+            "ibit uruna center" to "Ibituruna Center",
+            "ibituruna center" to "Ibituruna Center",
+            "aroldo tourinho" to "Hospitais",
+            "dilson godinho" to "Hospitais",
+            "santa casa" to "Hospitais",
             "hospital" to "Hospitais",
             "rodoviaria" to "Rodoviária/Terminal",
             "terminal" to "Rodoviária/Terminal",
+            "cemiterio" to "Cemitérios",
+            "igreja" to "Igrejas",
             "unimontes" to "Unimontes",
             "campus" to "Unimontes",
             "barcelona park" to "Barcelona Park",
@@ -40,8 +47,14 @@ internal object LocalContextAdvisor {
             "Jaraguá", "Barcelona Park", "Cemitérios", "Hospitais", "Igrejas", "Rodoviária/Terminal",
             "Montes Claros Shopping", "Ibituruna Center"
         )
-        return areas.firstOrNull { normalize(it).let(value::contains) } ?: "Destino não identificado"
+        areas.firstOrNull { normalize(it) == value }?.let { return it }
+        return neighborhood?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotBlank() }
+            ?: "Destino não identificado"
     }
+
+    /** Driver-local Centro restriction; uses the phone's current local time (no special permission). */
+    fun centerBlocked(destinationArea: String, hour: Int, minute: Int): Boolean =
+        normalize(destinationArea) == normalize("Centro") && (hour < 10 || (hour == 10 && minute < 30))
 
     fun level(area: String, hour: Int, minute: Int, weekday: Int, holiday: Boolean): Level {
         val a = normalize(area)
