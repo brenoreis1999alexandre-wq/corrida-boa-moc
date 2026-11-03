@@ -22,7 +22,9 @@ internal data class RideRecord(
     val netHour: Double,
     val netKm: Double,
     val netMinute: Double,
-    val status: Int
+    val status: Int,
+    val id: Long = 0L,
+    val completed: Boolean = false
 )
 
 
@@ -33,7 +35,7 @@ internal data class ObservedOfferPattern(
     val averageGrossHour: Double
 )
 
-internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrida_boa_history.db", null, 3) {
+internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrida_boa_history.db", null, 4) {
     private val duplicateWindowMs = 180_000L
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -55,7 +57,8 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
             net_hour REAL NOT NULL,
             net_km REAL NOT NULL,
             net_minute REAL NOT NULL,
-            status INTEGER NOT NULL
+            status INTEGER NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0
         )""".trimIndent())
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_offers_created_at ON offers(created_at)")
     }
@@ -63,6 +66,7 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE offers ADD COLUMN monthly_cost REAL NOT NULL DEFAULT 0")
         if (oldVersion < 3) db.execSQL("CREATE INDEX IF NOT EXISTS idx_offers_created_at ON offers(created_at)")
+        if (oldVersion < 4) db.execSQL("ALTER TABLE offers ADD COLUMN completed INTEGER NOT NULL DEFAULT 0")
     }
 
     fun save(r: RideRecord) {
@@ -97,6 +101,13 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
 
     fun all(): List<RideRecord> = readRecords(null, null, null)
 
+    fun markCompleted(id: Long, completed: Boolean) {
+        writableDatabase.update("offers", ContentValues().apply { put("completed", if (completed) 1 else 0) }, "id = ?", arrayOf(id.toString()))
+    }
+
+    fun completedBetween(startInclusive: Long, endExclusive: Long): List<RideRecord> =
+        readRecords("created_at >= ? AND created_at < ? AND completed = 1", arrayOf(startInclusive.toString(), endExclusive.toString()), null)
+
     private fun readRecords(selection: String?, selectionArgs: Array<String>?, limit: String?): List<RideRecord> {
         val rows = mutableListOf<RideRecord>()
         readableDatabase.query("offers", null, selection, selectionArgs, null, null, "created_at DESC", limit).use { c ->
@@ -118,7 +129,9 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
                     c.getDouble(c.getColumnIndexOrThrow("net_hour")),
                     c.getDouble(c.getColumnIndexOrThrow("net_km")),
                     c.getDouble(c.getColumnIndexOrThrow("net_minute")),
-                    c.getInt(c.getColumnIndexOrThrow("status"))
+                    c.getInt(c.getColumnIndexOrThrow("status")),
+                    c.getLong(c.getColumnIndexOrThrow("id")),
+                    c.getInt(c.getColumnIndexOrThrow("completed")) != 0
                 )
             }
         }
