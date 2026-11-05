@@ -63,8 +63,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             if (activePackage != null && activePackage in supportedPackages) {
                 val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
                 val is99 = is99Package(activePackage)
-                val treeOffer = extractOfferContextFromNode(root, allowActionless99 = is99)
-                    ?: extractOfferContext(treeText, allowActionless99 = is99)
+                val treeOffer = findOfferContext(root, treeText, is99)
                 if (is99 && treeOffer != null) {
                     noteOfferVisible(activePackage, treeOffer)
                     analyzeScreen(activePackage, treeOffer.text, manual = false)
@@ -86,8 +85,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             if (pkg != null && (is99Package(pkg) || pkg == "com.ubercab.driver")) {
                 val is99 = is99Package(pkg)
                 val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-                val offer = extractOfferContextFromNode(root, allowActionless99 = is99)
-                    ?: extractOfferContext(treeText, allowActionless99 = is99)
+                val offer = findOfferContext(root, treeText, is99)
                 if (offer != null) {
                     noteOfferVisible(pkg, offer)
                     analyzeScreen(pkg, offer.text, manual = false)
@@ -103,7 +101,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 }
             }
             handler.postDelayed(this, when {
-                pkg != null && is99Package(pkg) -> 700L
+                pkg != null && is99Package(pkg) -> 400L
                 pkg == "com.ubercab.driver" -> 700L
                 else -> 1_000L
             })
@@ -159,8 +157,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         // and require the foreground package to stay the same before scoring.
         val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
         val is99 = is99Package(pkg)
-        val treeOffer = extractOfferContextFromNode(root, allowActionless99 = is99)
-            ?: extractOfferContext(treeText, allowActionless99 = is99)
+        val treeOffer = findOfferContext(root, treeText, is99)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && is99 && treeOffer != null) {
             // The 99 card has route/payment text in Accessibility but may omit an accept button;
             // use its isolated card subtree directly instead of requiring a screen capture.
@@ -180,6 +177,15 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun is99Package(pkg: String): Boolean = pkg in NINETY_NINE_PACKAGES
+
+    /** Parse the flat accessibility text first; only walk the node tree if the complete offer is not found. */
+    private fun findOfferContext(root: AccessibilityNodeInfo?, text: String, is99: Boolean): OfferContext? {
+        extractOfferContext(text, allowActionless99 = is99)?.let { return it }
+        // Avoid a full recursive Accessibility tree walk on ordinary 99 screens with no offer card.
+        if (is99 && (!PRICE.containsMatchIn(text) ||
+                (!hasActionless99CardMarker(text) && !OFFER_ACTION.containsMatchIn(text)))) return null
+        return extractOfferContextFromNode(root, allowActionless99 = is99)
+    }
 
     private fun neighborhoodKey(address: String): String = LocalContextAdvisor.areaFromAddress(address)
 
@@ -262,8 +268,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val is99 = is99Package(pkg)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && is99) {
             val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-            val exactOffer = extractOfferContextFromNode(root, allowActionless99 = true)
-                ?: extractOfferContext(treeText, allowActionless99 = true)
+            val exactOffer = findOfferContext(root, treeText, true)
             if (exactOffer != null) {
                 noteOfferVisible(pkg, exactOffer)
                 analyzeScreen(pkg, exactOffer.text, manual = true)
@@ -272,8 +277,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             captureVisibleScreen(manual = true, sourcePackage = pkg)
         } else {
             val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
-            val exactOffer = extractOfferContextFromNode(root, allowActionless99 = is99) 
-                ?: extractOfferContext(treeText, allowActionless99 = is99)
+            val exactOffer = findOfferContext(root, treeText, is99)
             if (exactOffer != null) {
                 noteOfferVisible(pkg, exactOffer)
                 analyzeScreen(pkg, exactOffer.text, manual = true)
