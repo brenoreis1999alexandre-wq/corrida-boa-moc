@@ -28,6 +28,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     private var noOfferResetPending = false
     private var screenGeneration = 0
     private var screenshotInFlight = false
+    private var screenshotCaptureId = 0L
     private var pendingCapture: PendingCapture? = null
     private var lastOcrRequestAt = 0L
     private data class PendingCapture(val manual: Boolean, val pkg: String)
@@ -65,8 +66,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 val is99 = is99Package(activePackage)
                 val treeOffer = findOfferContext(root, treeText, is99)
                 if (is99 && treeOffer != null) {
-                    noteOfferVisible(activePackage, treeOffer)
-                    analyzeScreen(activePackage, treeOffer.text, manual = false)
+                    if (noteOfferVisible(activePackage, treeOffer)) analyzeScreen(activePackage, treeOffer.text, manual = false)
                 } else if (treeOffer != null) requestOfferRead(activePackage, treeOffer)
                 else {
                     if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
@@ -87,8 +87,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 val treeText = collectText(root).replace('\n', ' ').replace(Regex("""\s+"""), " ").trim()
                 val offer = findOfferContext(root, treeText, is99)
                 if (offer != null) {
-                    noteOfferVisible(pkg, offer)
-                    analyzeScreen(pkg, offer.text, manual = false)
+                    if (noteOfferVisible(pkg, offer)) analyzeScreen(pkg, offer.text, manual = false)
                 } else {
                     // Uber can leave Accessibility quiet while the driver is paused or returns
                     // to the app. Treat a missing parsed card as a gap so the next identical
@@ -102,7 +101,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             }
             handler.postDelayed(this, when {
                 pkg != null && is99Package(pkg) -> 400L
-                pkg == "com.ubercab.driver" -> 700L
+                pkg == "com.ubercab.driver" -> 500L
                 else -> 1_000L
             })
         }
@@ -161,16 +160,14 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && is99 && treeOffer != null) {
             // The 99 card has route/payment text in Accessibility but may omit an accept button;
             // use its isolated card subtree directly instead of requiring a screen capture.
-            noteOfferVisible(pkg, treeOffer)
-            analyzeScreen(pkg, treeOffer.text, manual = false, demandRawText = treeText)
+            if (noteOfferVisible(pkg, treeOffer)) analyzeScreen(pkg, treeOffer.text, manual = false, demandRawText = treeText)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && treeOffer != null) {
             requestOfferRead(pkg, treeOffer)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
             captureVisibleScreen(manual = false, sourcePackage = pkg)
         } else if (treeOffer != null) {
-            noteOfferVisible(pkg, treeOffer)
-            analyzeScreen(pkg, treeOffer.text, manual = false, demandRawText = treeText)
+            if (noteOfferVisible(pkg, treeOffer)) analyzeScreen(pkg, treeOffer.text, manual = false, demandRawText = treeText)
         } else if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) {
             noteNoOfferVisible()
         }
@@ -226,8 +223,6 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     captureVisibleScreen(manual = false, sourcePackage = pkg, force = true)
                 }
             }, 35)
-        } else {
-            captureVisibleScreen(manual = false, sourcePackage = pkg)
         }
     }
 
@@ -316,8 +311,11 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
         if (!manual && !force && now - lastOcrRequestAt < 300) return
         screenshotInFlight = true
+        val captureId = ++screenshotCaptureId
         lastOcrRequestAt = now
         val requestGeneration = screenGeneration
+        // A stalled screenshot/OCR callback must not block monitoring forever.
+        handler.postDelayed({ finishScreenshot(captureId) }, SCREENSHOT_WATCHDOG_MS)
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
                 override fun onSuccess(screenshot: ScreenshotResult) {
@@ -327,7 +325,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                     } catch (_: Exception) { null }
                     try { screenshot.hardwareBuffer.close() } catch (_: Exception) { }
                     if (bitmap == null) {
-                        finishScreenshot()
+                        finishScreenshot(captureId)
                         if (manual) screenshotFailed()
                         return
                     }
@@ -346,7 +344,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                             val visiblePackageNow = rootInActiveWindow?.packageName?.toString()
                             val packageStillMatches = observedDriverPackage == sourcePackage &&
                                 visiblePackageNow == sourcePackage
-                            if (requestGeneration == screenGeneration && packageStillMatches) {
+                            if (captureId == screenshotCaptureId && requestGeneration == screenGeneration && packageStillMatches) {
                                 // Keep the whole visual OCR text for optional Uber trend-map signals,
                                 // but parse the offer only within its own exact card context.
                                 val exactOffer = extractOfferContext(visibleText, allowActionless99 = is99Package(sourcePackage))
@@ -362,27 +360,28 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                                     }
                                 }
                             }
-                            finishScreenshot()
+                            finishScreenshot(captureId)
                         }
                         .addOnFailureListener {
                             bitmap.recycle()
-                            finishScreenshot()
+                            finishScreenshot(captureId)
                             if (manual) screenshotFailed()
                         }
                 }
 
                 override fun onFailure(errorCode: Int) {
-                    finishScreenshot()
+                    finishScreenshot(captureId)
                     if (manual) screenshotFailed()
                 }
             })
         } catch (_: Exception) {
-            finishScreenshot()
+            finishScreenshot(captureId)
             if (manual) screenshotFailed()
         }
     }
 
-    private fun finishScreenshot() {
+    private fun finishScreenshot(captureId: Long) {
+        if (captureId != screenshotCaptureId || !screenshotInFlight) return
         screenshotInFlight = false
         val pending = pendingCapture ?: return
         pendingCapture = null
@@ -786,6 +785,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 .putBoolean(Prefs.MONITORING_ENABLED, enabled).apply()
             activeService?.applyMonitoringState()
         }
+        private const val SCREENSHOT_WATCHDOG_MS = 2_500L
         private const val MAX_OFFER_CONTEXT = 1_200
         private const val OFFER_ABSENCE_RESET_MS = 6_000L
         private val NINETY_NINE_PACKAGES = setOf("com.app99.driver", "com.d99.android.driver", "com.99Taxis.driver", "com.didi.driver")
