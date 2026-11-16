@@ -60,7 +60,7 @@ Origem: $pickup
 Destino: $dropoff
 Oferta: ${r.fare.money()}  •  Buscar: ${r.pickupKm.oneDecimal()} km  •  Viagem: ${r.tripKm.oneDecimal()} km
 Total: ${(r.pickupKm + r.tripKm).oneDecimal()} km  •  ${r.minutes.oneDecimal()} min
-Gasolina: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}
+Energia/combustível: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}
 Lucro estimado: ${r.net.money()}
 Valores brutos da oferta: ${r.grossKm.money()}/km  •  ${r.grossHour.money()}/h  •  ${r.grossMinute.money()}/min"""
         return TextView(this).apply {
