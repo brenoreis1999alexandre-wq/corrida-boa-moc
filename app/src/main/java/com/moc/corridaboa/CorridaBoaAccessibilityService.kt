@@ -569,8 +569,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val totalKm = kmBusca + kmViagem
         if (totalKm <= 0.0 || tempoTotal <= 0.0) return
 
-        val gasPrice = settings.getFloat(Prefs.GAS, 6.20f).toDouble()
-        val consumption = max(0.1, settings.getFloat(Prefs.CONSUMO, 12f).toDouble())
+        val isElectric = settings.getBoolean(Prefs.ELECTRIC_VEHICLE, false)
+        val energyPrice = if (isElectric) settings.getFloat(Prefs.ELECTRIC_PRICE, 1.00f).toDouble() else settings.getFloat(Prefs.GAS, 6.20f).toDouble()
+        val consumption = max(0.1, if (isElectric) settings.getFloat(Prefs.ELECTRIC_CONSUMPTION, 18f).toDouble() else settings.getFloat(Prefs.CONSUMO, 12f).toDouble())
         val monthlyFixed = settings.getFloat(Prefs.MONTHLY_FIXED, 0f).toDouble()
         val monthlyOther = settings.getFloat(Prefs.MONTHLY_OTHER, 0f).toDouble()
         val monthlyDistance = settings.getFloat(Prefs.MONTHLY_KM, 0f).toDouble()
@@ -584,7 +585,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val floorPerKm = settings.getFloat(Prefs.FLOOR_KM, 1.50f).toDouble()
         val floorPerHour = settings.getFloat(Prefs.FLOOR_HOUR, 31f).toDouble()
         val floorPerMinute = settings.getFloat(Prefs.FLOOR_MINUTE, 0.49f).toDouble()
-        val fuelCost = totalKm * gasPrice / consumption
+        val fuelCost = if (isElectric) totalKm * energyPrice * consumption / 100.0 else totalKm * energyPrice / consumption
         val monthlyCost = if (monthlyDistance > 0.0) totalKm * (monthlyFixed + monthlyOther) / monthlyDistance else 0.0
         val totalCosts = fuelCost + monthlyCost
         val profit = fare - totalCosts
@@ -708,7 +709,8 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             totalKm.oneDecimal(), tempoTotal.oneDecimal(), grossKm.money(), grossHour.money(), grossMinute.money(),
             kmStatus, hourStatus, minuteStatus, recommendationStatus,
             smartNote = smartNote,
-            onUserDecision = decisionHandler
+            onUserDecision = decisionHandler,
+            energyLabel = if (isElectric) "Energia" else "Gasolina"
         )
         // Start address lookup only after the instant offer card and financial recommendation are shown.
         // A late result refreshes only if this exact offer is still active; it never creates another history row.
