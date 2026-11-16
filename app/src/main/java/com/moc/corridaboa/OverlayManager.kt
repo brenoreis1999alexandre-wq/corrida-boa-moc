@@ -226,7 +226,8 @@ internal object OverlayManager {
         minuteStatus: Int,
         status: Int,
         smartNote: String? = null,
-        onUserDecision: ((Boolean) -> Unit)? = null
+        onUserDecision: ((Boolean) -> Unit)? = null,
+        energyLabel: String = "Gasolina"
     ) {
         handler.post {
             bubbleStatus = status
@@ -298,7 +299,7 @@ internal object OverlayManager {
                 gravity = Gravity.CENTER
             })
             card.addView(TextView(service).apply {
-                text = "Gasolina $fuelCostAmount  •  mensais rateados $monthlyCostAmount"
+                text = "$energyLabel $fuelCostAmount  •  mensais rateados $monthlyCostAmount"
                 textSize = 12f
                 setTextColor(Color.rgb(220, 228, 243))
                 setPadding(0, dp(service, 1), 0, 0)
