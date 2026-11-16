@@ -22,6 +22,8 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -46,6 +48,8 @@ class MainActivity : Activity() {
     private lateinit var pageHost: FrameLayout
     private lateinit var gas: EditText
     private lateinit var consumo: EditText
+    private lateinit var electricConsumptionSetting: EditText
+    private lateinit var electricityPriceSetting: EditText
     private lateinit var targetKm: EditText
     private lateinit var targetHour: EditText
     private lateinit var targetMinute: EditText
@@ -651,13 +655,35 @@ class MainActivity : Activity() {
     private fun calculatorPage(): View {
         val content = vertical()
         content.addView(label("Calculadora de ganhos", 24, pale, true))
-        content.addView(label("Descubra quanto a oferta precisa render por km para cobrir seus custos e sua meta.", 13, secondary))
+        content.addView(label("Descubra quanto a oferta precisa render por km para cobrir os custos e sua meta.", 13, secondary))
         content.addView(space(10))
 
         val inputs = card()
         inputs.addView(label("DADOS DO SEU CARRO", 14, accent, true))
-        val consumption = editField(inputs, "Seu carro faz quantos km/L?", Prefs.CONSUMO, 12.0)
-        val fuel = editField(inputs, "Preço da gasolina na sua cidade (R$/L)", Prefs.GAS, 6.20)
+        val powerGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        val fuelMode = RadioButton(this).apply { text = "Combustível"; setTextColor(pale); id = View.generateViewId() }
+        val electricMode = RadioButton(this).apply { text = "Elétrico"; setTextColor(pale); id = View.generateViewId() }
+        powerGroup.addView(fuelMode)
+        powerGroup.addView(electricMode)
+        inputs.addView(powerGroup)
+        val electricSelected = prefs.getBoolean(Prefs.ELECTRIC_VEHICLE, false)
+        powerGroup.check(if (electricSelected) electricMode.id else fuelMode.id)
+
+        val fuelFields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val consumption = editField(fuelFields, "Seu carro faz quantos km/L?", Prefs.CONSUMO, 12.0)
+        val fuel = editField(fuelFields, "Preço da gasolina na sua cidade (R$/L)", Prefs.GAS, 6.20)
+        inputs.addView(fuelFields)
+
+        val electricFields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = if (electricSelected) View.VISIBLE else View.GONE }
+        val electricConsumption = editField(electricFields, "Consumo médio do carro (kWh/100 km)", Prefs.ELECTRIC_CONSUMPTION, 18.0)
+        val electricityPrice = editField(electricFields, "Preço médio efetivo da energia (R$/kWh)", Prefs.ELECTRIC_PRICE, 1.00)
+        electricFields.addView(label("Use o custo médio que você realmente paga, considerando recargas em casa e públicas. Se souber, some também as perdas de recarga no consumo informado.", 12, secondary))
+        inputs.addView(electricFields)
+        powerGroup.setOnCheckedChangeListener { _, checkedId ->
+            fuelFields.visibility = if (checkedId == fuelMode.id) View.VISIBLE else View.GONE
+            electricFields.visibility = if (checkedId == electricMode.id) View.VISIBLE else View.GONE
+        }
+
         val fixedCost = editField(inputs, "Aluguel ou financiamento mensal (R$; opcional)", Prefs.MONTHLY_FIXED, 0.0)
         val otherMonthlyCost = editField(inputs, "Outros custos mensais (R$; opcional)", Prefs.MONTHLY_OTHER, 0.0)
         val monthlyDistance = editField(inputs, "Quantos km você roda no mês?", Prefs.MONTHLY_KM, 0.0)
@@ -673,54 +699,56 @@ class MainActivity : Activity() {
         resultCard.addView(result)
         content.addView(resultCard)
         val applyButton = actionButton("Usar resultado nas metas por km") {
-            prefs.edit()
-                .putFloat(Prefs.MIN_KM, idealOfferPerKm.toFloat())
-                .putFloat(Prefs.FLOOR_KM, (idealOfferPerKm * 0.75).toFloat())
-                .apply()
+            prefs.edit().putFloat(Prefs.MIN_KM, idealOfferPerKm.toFloat())
+                .putFloat(Prefs.FLOOR_KM, (idealOfferPerKm * 0.75).toFloat()).apply()
             Toast.makeText(this, "Meta boa e piso amarelo do km atualizados", Toast.LENGTH_SHORT).show()
         }.apply { visibility = View.GONE }
         content.addView(applyButton)
         content.addView(space(8))
         content.addView(actionButton("Calcular meu km ideal") {
-            val consumptionValue = parse(consumption.text.toString())
-            val fuelValue = parse(fuel.text.toString())
+            val isElectric = powerGroup.checkedRadioButtonId == electricMode.id
+            val consumptionValue = parse(if (isElectric) electricConsumption.text.toString() else consumption.text.toString())
+            val energyPriceValue = parse(if (isElectric) electricityPrice.text.toString() else fuel.text.toString())
             val fixedValue = parse(fixedCost.text.toString())
             val otherMonthlyValue = parse(otherMonthlyCost.text.toString())
             val monthlyKmValue = parse(monthlyDistance.text.toString())
             val desiredValue = parse(desiredNet.text.toString())
-            if (listOf(consumptionValue, fuelValue, fixedValue, otherMonthlyValue, monthlyKmValue, desiredValue).any { it == null } ||
-                (consumptionValue ?: 0.0) <= 0.0 || (fuelValue ?: 0.0) <= 0.0 ||
+            if (listOf(consumptionValue, energyPriceValue, fixedValue, otherMonthlyValue, monthlyKmValue, desiredValue).any { it == null } ||
+                (consumptionValue ?: 0.0) <= 0.0 || (energyPriceValue ?: 0.0) <= 0.0 ||
                 (fixedValue ?: -1.0) < 0.0 || (otherMonthlyValue ?: -1.0) < 0.0 || (monthlyKmValue ?: -1.0) < 0.0 || (desiredValue ?: -1.0) < 0.0 ||
                 (((fixedValue ?: 0.0) + (otherMonthlyValue ?: 0.0)) > 0.0 && (monthlyKmValue ?: 0.0) <= 0.0)) {
                 Toast.makeText(this, "Confira os valores e informe km/mês se tiver custos mensais.", Toast.LENGTH_LONG).show()
                 return@actionButton
             }
             val consumptionNumber = consumptionValue!!
-            val fuelNumber = fuelValue!!
+            val energyPriceNumber = energyPriceValue!!
             val fixedNumber = fixedValue!!
             val otherMonthlyNumber = otherMonthlyValue!!
             val monthlyKmNumber = monthlyKmValue!!
             val desiredNumber = desiredValue!!
-            val fuelPerKm = fuelNumber / consumptionNumber
+            val energyPerKm = if (isElectric) energyPriceNumber * consumptionNumber / 100.0 else energyPriceNumber / consumptionNumber
             val monthlyCostPerKm = if (fixedNumber + otherMonthlyNumber > 0.0) (fixedNumber + otherMonthlyNumber) / monthlyKmNumber else 0.0
-            val breakEvenPerKm = fuelPerKm + monthlyCostPerKm
+            val breakEvenPerKm = energyPerKm + monthlyCostPerKm
             val idealGrossPerKm = breakEvenPerKm + desiredNumber
             idealOfferPerKm = idealGrossPerKm
             prefs.edit()
-                .putFloat(Prefs.GAS, fuelNumber.toFloat())
-                .putFloat(Prefs.CONSUMO, consumptionNumber.toFloat())
+                .putBoolean(Prefs.ELECTRIC_VEHICLE, isElectric)
+                .putFloat(Prefs.GAS, if (isElectric) prefs.getFloat(Prefs.GAS, 6.20f) else energyPriceNumber.toFloat())
+                .putFloat(Prefs.CONSUMO, if (isElectric) prefs.getFloat(Prefs.CONSUMO, 12f) else consumptionNumber.toFloat())
+                .putFloat(Prefs.ELECTRIC_PRICE, if (isElectric) energyPriceNumber.toFloat() else prefs.getFloat(Prefs.ELECTRIC_PRICE, 1.00f))
+                .putFloat(Prefs.ELECTRIC_CONSUMPTION, if (isElectric) consumptionNumber.toFloat() else prefs.getFloat(Prefs.ELECTRIC_CONSUMPTION, 18f))
                 .putFloat(Prefs.MONTHLY_FIXED, fixedNumber.toFloat())
                 .putFloat(Prefs.MONTHLY_OTHER, otherMonthlyNumber.toFloat())
                 .putFloat(Prefs.MONTHLY_KM, monthlyKmNumber.toFloat())
-                .putFloat(Prefs.CALC_GOAL_PER_KM, desiredNumber.toFloat())
-                .apply()
-            result.text = "Combustível: ${fuelPerKm.money()}/km\nCustos mensais rateados: ${monthlyCostPerKm.money()}/km\nPonto de equilíbrio: ${breakEvenPerKm.money()}/km\nOferta ideal: ${idealGrossPerKm.money()}/km para sobrar ${desiredNumber.money()}/km de lucro estimado."
+                .putFloat(Prefs.CALC_GOAL_PER_KM, desiredNumber.toFloat()).apply()
+            val energyLabel = if (isElectric) "Energia elétrica" else "Combustível"
+            result.text = "$energyLabel: ${energyPerKm.money()}/km\nCustos mensais rateados: ${monthlyCostPerKm.money()}/km\nPonto de equilíbrio: ${breakEvenPerKm.money()}/km\nOferta ideal: ${idealGrossPerKm.money()}/km para sobrar ${desiredNumber.money()}/km de lucro estimado."
             applyButton.text = "Usar ${idealOfferPerKm.money()}/km como meta bruta da oferta"
             resultCard.visibility = View.VISIBLE
             applyButton.visibility = View.VISIBLE
         })
         content.addView(space(10))
-        content.addView(label("Lucro estimado com os custos cadastrados. Custos que não informar — como manutenção, pneus, impostos ou depreciação — ficam de fora.", 12, secondary))
+        content.addView(label("Estimativa: manutenção, pneus, impostos, depreciação e diferenças entre tarifas de recarga só entram se você informar em outros custos ou no preço médio de energia.", 12, secondary))
         return scroll(content)
     }
 
@@ -732,9 +760,37 @@ class MainActivity : Activity() {
 
         val costCard = card()
         costCard.addView(label("CÁLCULO DE CUSTOS", 14, accent, true))
+        val electricSelected = prefs.getBoolean(Prefs.ELECTRIC_VEHICLE, false)
+        val energyGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        val fuelMode = RadioButton(this).apply { text = "Combustível"; setTextColor(pale); id = View.generateViewId() }
+        val electricMode = RadioButton(this).apply { text = "Elétrico"; setTextColor(pale); id = View.generateViewId() }
+        energyGroup.addView(fuelMode); energyGroup.addView(electricMode)
+        energyGroup.check(if (electricSelected) electricMode.id else fuelMode.id)
+        costCard.addView(energyGroup)
         gas = editField(costCard, "Preço da gasolina (R$/L)", Prefs.GAS, 6.20)
         consumo = editField(costCard, "Consumo médio (km/L)", Prefs.CONSUMO, 12.0)
-        val costPerKm = label("Custo estimado de combustível: — / km", 13, pale, true)
+        electricityPriceSetting = editField(costCard, "Preço efetivo da energia (R$/kWh)", Prefs.ELECTRIC_PRICE, 1.00)
+        electricConsumptionSetting = editField(costCard, "Consumo elétrico (kWh/100 km)", Prefs.ELECTRIC_CONSUMPTION, 18.0)
+        val costPerKm = label("Custo estimado de energia: — / km", 13, pale, true)
+        val updateEnergyFields: (Int) -> Unit = { checkedId ->
+            val electric = checkedId == electricMode.id
+            gas.visibility = if (electric) View.GONE else View.VISIBLE
+            consumo.visibility = if (electric) View.GONE else View.VISIBLE
+            electricityPriceSetting.visibility = if (electric) View.VISIBLE else View.GONE
+            electricConsumptionSetting.visibility = if (electric) View.VISIBLE else View.GONE
+            val cost = if (electric) {
+                (prefs.getFloat(Prefs.ELECTRIC_PRICE, 1f) * prefs.getFloat(Prefs.ELECTRIC_CONSUMPTION, 18f) / 100.0).money()
+            } else (prefs.getFloat(Prefs.GAS, 6.20f) / prefs.getFloat(Prefs.CONSUMO, 12f)).toDouble().money()
+            costPerKm.text = "Custo estimado de ${if (electric) "energia elétrica" else "combustível"}: $cost / km"
+        }
+        energyGroup.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(Prefs.ELECTRIC_VEHICLE, checked == electricMode.id).apply()
+            updateEnergyFields(checked)
+        }
+        updateEnergyFields(energyGroup.checkedRadioButtonId)
+        costCard.addView(label("Os valores cadastrados aqui também são usados no cálculo do lucro das ofertas.", 12, secondary))
+        costCard.addView(space(5))
+        costCard.addView(costPerKm)
         costCard.addView(space(5))
         costCard.addView(costPerKm)
         content.addView(costCard)
@@ -763,6 +819,7 @@ class MainActivity : Activity() {
         content.addView(actionButton("Salvar configurações") {
             val pairs = listOf(
                 gas to Prefs.GAS, consumo to Prefs.CONSUMO,
+                electricityPriceSetting to Prefs.ELECTRIC_PRICE, electricConsumptionSetting to Prefs.ELECTRIC_CONSUMPTION,
                 targetKm to Prefs.MIN_KM, floorKm to Prefs.FLOOR_KM,
                 targetHour to Prefs.BOA_HORA, floorHour to Prefs.FLOOR_HOUR,
                 targetMinute to Prefs.MIN_MINUTO, floorMinute to Prefs.FLOOR_MINUTE
@@ -774,14 +831,19 @@ class MainActivity : Activity() {
             val minHour = parse(floorHour.text.toString())
             val goodMinute = parse(targetMinute.text.toString())
             val minMinute = parse(floorMinute.text.toString())
-            if (values.any { it == null } || (values[1] ?: 0.0) <= 0.0 || values.drop(2).any { (it ?: -1.0) < 0.0 } ||
+            val electricModeSelected = prefs.getBoolean(Prefs.ELECTRIC_VEHICLE, false)
+            val energyInputsValid = if (electricModeSelected) (values[2] ?: 0.0) > 0.0 && (values[3] ?: 0.0) > 0.0 else (values[0] ?: 0.0) > 0.0 && (values[1] ?: 0.0) > 0.0
+            if (values.any { it == null } || !energyInputsValid || values.drop(4).any { (it ?: -1.0) < 0.0 } ||
                 minKm!! > goodKm!! || minHour!! > goodHour!! || minMinute!! > goodMinute!!) {
                 Toast.makeText(this, "Confira os números: o consumo deve ser positivo e cada piso deve ser menor ou igual à meta boa.", Toast.LENGTH_LONG).show()
                 return@actionButton
             }
-            prefs.edit().apply { pairs.forEachIndexed { index, pair -> putFloat(pair.second, values[index]!!.toFloat()) } }.apply()
-            val cost = (values[0]!! / values[1]!!).money()
-            costPerKm.text = "Custo estimado de combustível: $cost / km"
+            prefs.edit().apply {
+                pairs.forEachIndexed { index, pair -> putFloat(pair.second, values[index]!!.toFloat()) }
+                putBoolean(Prefs.ELECTRIC_VEHICLE, electricModeSelected)
+            }.apply()
+            val cost = if (electricModeSelected) (values[2]!! * values[3]!! / 100.0).money() else (values[0]!! / values[1]!!).money()
+            costPerKm.text = "Custo estimado de ${if (electricModeSelected) "energia elétrica" else "combustível"}: $cost / km"
             Toast.makeText(this, "Configurações salvas", Toast.LENGTH_SHORT).show()
         })
         costPerKm.text = "Custo estimado de combustível: ${(prefs.getFloat(Prefs.GAS, 6.20f) / prefs.getFloat(Prefs.CONSUMO, 12f)).toDouble().money()} / km"
@@ -1069,6 +1131,9 @@ class MainActivity : Activity() {
 internal object Prefs {
     const val FILE = "corrida_boa_settings"
     const val GAS = "gas_price"
+    const val ELECTRIC_VEHICLE = "electric_vehicle"
+    const val ELECTRIC_CONSUMPTION = "electric_consumption_kwh_100km"
+    const val ELECTRIC_PRICE = "electricity_price_kwh"
     const val CONSUMO = "consumo"
     const val MIN_HORA = "min_hour"
     const val BOA_HORA = "good_hour"
