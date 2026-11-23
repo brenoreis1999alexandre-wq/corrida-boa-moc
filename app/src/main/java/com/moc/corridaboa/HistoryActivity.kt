@@ -56,7 +56,7 @@ class HistoryActivity : Activity() {
         val dropoff = r.dropoff.ifBlank { "Destino não identificado" }
         val summary = """$time
 $status
-${if (r.manualEntry) "Corrida concluída, registro manual" else "Origem: $pickup\nDestino: $dropoff"}
+${if (r.manualEntry) "Corrida concluída, registro manual${if (r.dropoff.isNotBlank() && r.dropoff != "Endereço não informado") "\nEndereço/rota: ${r.dropoff}" else ""}" else "Origem: $pickup\nDestino: $dropoff"}
 ${if (r.manualEntry) "Valor recebido: ${r.fare.money()}  •  Rodado: ${r.tripKm.oneDecimal()} km" else "Oferta: ${r.fare.money()}  •  Buscar: ${r.pickupKm.oneDecimal()} km  •  Viagem: ${r.tripKm.oneDecimal()} km  •  Total: ${(r.pickupKm + r.tripKm).oneDecimal()} km"}
 Duração: ${if (r.minutes > 0.0) "${r.minutes.oneDecimal()} min" else "não informada"}
 Energia/combustível: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}

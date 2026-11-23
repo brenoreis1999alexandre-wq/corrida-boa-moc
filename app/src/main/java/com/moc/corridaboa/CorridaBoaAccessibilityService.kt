@@ -219,14 +219,16 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             showScanMessage("Ligue o monitoramento para registrar uma corrida pela bolha.", OverlayManager.WARNING)
             return
         }
+        val lastManualAddress = runCatching { history.latest(300).firstOrNull { it.manualEntry }?.dropoff.orEmpty() }.getOrDefault("")
         OverlayManager.showManualRideEntry(
             this,
-            onSave = { fare, totalKm, minutes -> saveManualRide(fare, totalKm, minutes) },
+            lastRideAddress = lastManualAddress,
+            onSave = { fare, totalKm, minutes, address -> saveManualRide(fare, totalKm, minutes, address) },
             onScanOffer = { rereadCurrentOffer() }
         )
     }
 
-    private fun saveManualRide(fare: Double, totalKm: Double, minutes: Double) {
+    private fun saveManualRide(fare: Double, totalKm: Double, minutes: Double, address: String) {
         val vehicleType = settings.getString(Prefs.VEHICLE_TYPE, if (settings.getBoolean(Prefs.ELECTRIC_VEHICLE, false)) "electric" else "fuel")
         val usesFuel = vehicleType == "fuel" || vehicleType == "hybrid"
         val usesElectric = vehicleType == "electric" || vehicleType == "hybrid"
@@ -249,7 +251,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val netHour = if (minutes > 0.0) net * 60.0 / minutes else 0.0
         val status = if (net > 0.0) OverlayManager.GOOD else OverlayManager.BAD
         val record = RideRecord(
-            createdAt = System.currentTimeMillis(), pickup = "Registro manual", dropoff = "Corrida concluída",
+            createdAt = System.currentTimeMillis(), pickup = "Registro manual", dropoff = address.ifBlank { "Endereço não informado" },
             fare = fare, pickupKm = 0.0, tripKm = totalKm, minutes = minutes,
             fuelCost = energyCost, monthlyCost = monthlyCost, net = net,
             grossHour = grossHour, grossKm = grossKm, grossMinute = grossMinute,
@@ -639,8 +641,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val floorPerKm = settings.getFloat(Prefs.FLOOR_KM, 1.50f).toDouble()
         val floorPerHour = settings.getFloat(Prefs.FLOOR_HOUR, 31f).toDouble()
         val floorPerMinute = settings.getFloat(Prefs.FLOOR_MINUTE, 0.49f).toDouble()
-        val fuelCostPerKm = if (isElectric || isHybrid) 0.0 else fuelPrice / fuelConsumption
-        val electricCostPerKm = if (isElectric || isHybrid) electricityPrice * electricConsumption / 100.0 else 0.0
+        val usesFuel = vehicleType == "fuel" || vehicleType == "hybrid"
+        val usesElectricity = vehicleType == "electric" || vehicleType == "hybrid"
+        val fuelCostPerKm = if (usesFuel) fuelPrice / fuelConsumption else 0.0
+        val electricCostPerKm = if (usesElectricity) electricityPrice * electricConsumption / 100.0 else 0.0
         val fuelCost = totalKm * (fuelCostPerKm + electricCostPerKm)
         val monthlyCost = if (monthlyDistance > 0.0) totalKm * (monthlyFixed + monthlyOther) / monthlyDistance else 0.0
         val totalCosts = fuelCost + monthlyCost

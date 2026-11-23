@@ -143,7 +143,8 @@ internal object OverlayManager {
 
     fun showManualRideEntry(
         service: AccessibilityService,
-        onSave: (Double, Double, Double) -> Unit,
+        lastRideAddress: String,
+        onSave: (Double, Double, Double, String) -> Unit,
         onScanOffer: () -> Unit
     ) {
         handler.post {
@@ -164,8 +165,12 @@ internal object OverlayManager {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
             panel.addView(TextView(service).apply {
-                text = "Informe o valor recebido e a distância total da corrida, incluindo a ida para buscar o passageiro. Só entra no faturamento depois de salvar."
-                textSize = 12f; setTextColor(Color.rgb(205, 216, 234)); setPadding(0, dp(service, 5), 0, dp(service, 6))
+                text = "Último endereço salvo: ${lastRideAddress.ifBlank { "ainda não informado" }}"
+                textSize = 12f; setTextColor(Color.rgb(157, 208, 255)); setPadding(0, dp(service, 5), 0, dp(service, 4))
+            })
+            panel.addView(TextView(service).apply {
+                text = "Informe valor recebido, distância total (incluindo a ida para buscar o passageiro) e, se quiser, o endereço. Só entra no faturamento depois de salvar."
+                textSize = 12f; setTextColor(Color.rgb(205, 216, 234)); setPadding(0, 0, 0, dp(service, 6))
             })
             fun field(label: String, hint: String): EditText {
                 panel.addView(TextView(service).apply { text = label; textSize = 12f; setTextColor(Color.rgb(205,216,234)) })
@@ -181,6 +186,7 @@ internal object OverlayManager {
             val amount = field("Valor recebido (R$)", "Ex.: 28,50")
             val distance = field("Quilômetros rodados na corrida", "Ex.: 12,4")
             val minutes = field("Duração em minutos (opcional)", "Ex.: 25")
+            val address = field("Endereço ou rota da corrida (opcional)", "Ex.: Centro → Ibituruna")
             val buttons = LinearLayout(service).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(service, 7), 0, 0) }
             fun panelButton(title: String, color: Int, action: () -> Unit) = TextView(service).apply {
                 text = title; textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
@@ -200,7 +206,8 @@ internal object OverlayManager {
                     android.widget.Toast.makeText(service, "Informe valor e km maiores que zero; duração pode ficar vazia.", android.widget.Toast.LENGTH_LONG).show()
                     return@panelButton
                 }
-                removeManualEntry(); onSave(fare, km, mins)
+                val route = address.text.toString().trim()
+                removeManualEntry(); onSave(fare, km, mins, route)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             panel.addView(buttons)
             panel.addView(panelButton("Ler oferta atual", Color.rgb(42,75,120)) { removeManualEntry(); onScanOffer() }.apply { setPadding(dp(service, 8), dp(service, 8), dp(service, 8), dp(service, 8)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(service, 7) })
