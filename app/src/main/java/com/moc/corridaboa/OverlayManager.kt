@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.provider.Settings
 import android.text.SpannableString
 import android.text.Spanned
@@ -16,6 +17,8 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import kotlin.math.hypot
@@ -34,6 +37,7 @@ internal object OverlayManager {
     private var windowManager: WindowManager? = null
     private var bubbleView: TextView? = null
     private var resultView: LinearLayout? = null
+    private var manualEntryView: LinearLayout? = null
     private var closeView: TextView? = null
     private var decisionView: LinearLayout? = null
     private var bubbleStatus: Int? = null
@@ -80,7 +84,7 @@ internal object OverlayManager {
                 gravity = Gravity.CENTER
                 background = circle
                 elevation = dp(service, 10).toFloat()
-                contentDescription = "RotaLume: toque para ler a tela, segure para OCR contínuo, arraste para mover"
+                contentDescription = "RotaLume: toque para registrar corrida concluída ou ler oferta, segure para OCR contínuo, arraste para mover"
                 includeFontPadding = false
             }
             val touchSlop = ViewConfiguration.get(service).scaledTouchSlop.toFloat()
@@ -117,8 +121,6 @@ internal object OverlayManager {
                             prefs.edit().putInt(POS_X, params.x).putInt(POS_Y, params.y).apply()
                         } else if (System.currentTimeMillis() - downAt >= ViewConfiguration.getLongPressTimeout()) {
                             onLongPress()
-                        } else if (bubblePriceVisible || resultView != null) {
-                            dismissResult(service)
                         } else {
                             onTap()
                         }
@@ -137,6 +139,89 @@ internal object OverlayManager {
                 bubbleView = null
             }
         }
+    }
+
+    fun showManualRideEntry(
+        service: AccessibilityService,
+        onSave: (Double, Double, Double) -> Unit,
+        onScanOffer: () -> Unit
+    ) {
+        handler.post {
+            removeManualEntry()
+            val wm = service.getSystemService(AccessibilityService.WINDOW_SERVICE) as WindowManager
+            val panel = LinearLayout(service).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(service, 18), dp(service, 16), dp(service, 18), dp(service, 16))
+                background = GradientDrawable().apply {
+                    setColor(Color.rgb(24, 31, 48)); cornerRadius = dp(service, 18).toFloat()
+                    setStroke(dp(service, 2), Color.rgb(21, 232, 167))
+                }
+                elevation = dp(service, 16).toFloat()
+            }
+            panel.addView(TextView(service).apply {
+                text = "REGISTRAR CORRIDA CONCLUÍDA"
+                textSize = 17f; setTextColor(Color.rgb(21, 232, 167))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            panel.addView(TextView(service).apply {
+                text = "Informe o valor recebido e a distância total da corrida, incluindo a ida para buscar o passageiro. Só entra no faturamento depois de salvar."
+                textSize = 12f; setTextColor(Color.rgb(205, 216, 234)); setPadding(0, dp(service, 5), 0, dp(service, 6))
+            })
+            fun field(label: String, hint: String): EditText {
+                panel.addView(TextView(service).apply { text = label; textSize = 12f; setTextColor(Color.rgb(205,216,234)) })
+                return EditText(service).apply {
+                    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    setSingleLine(true); this.hint = hint
+                    textSize = 16f; setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY)
+                    setPadding(dp(service, 10), dp(service, 5), dp(service, 10), dp(service, 5))
+                    background = GradientDrawable().apply { setColor(Color.rgb(39,47,63)); cornerRadius = dp(service, 9).toFloat() }
+                    panel.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(service, 44)).apply { bottomMargin = dp(service, 5) })
+                }
+            }
+            val amount = field("Valor recebido (R$)", "Ex.: 28,50")
+            val distance = field("Quilômetros rodados na corrida", "Ex.: 12,4")
+            val minutes = field("Duração em minutos (opcional)", "Ex.: 25")
+            val buttons = LinearLayout(service).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(service, 7), 0, 0) }
+            fun panelButton(title: String, color: Int, action: () -> Unit) = TextView(service).apply {
+                text = title; textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                background = GradientDrawable().apply { setColor(color); cornerRadius = dp(service, 10).toFloat() }
+                setPadding(dp(service, 8), dp(service, 10), dp(service, 8), dp(service, 10))
+                setOnClickListener { action() }
+            }
+            buttons.addView(panelButton("Cancelar", Color.rgb(70,82,103)) { removeManualEntry() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(service, 6) })
+            buttons.addView(panelButton("Salvar corrida", Color.rgb(0,139,92)) {
+                fun parse(input: String): Double? = input.trim().replace(" ", "").replace(",", ".").toDoubleOrNull()
+                val fare = parse(amount.text.toString())
+                val km = parse(distance.text.toString())
+                val minsText = minutes.text.toString().trim()
+                val mins = if (minsText.isBlank()) 0.0 else parse(minsText)
+                if (fare == null || fare <= 0.0 || km == null || km <= 0.0 || mins == null || mins < 0.0) {
+                    android.widget.Toast.makeText(service, "Informe valor e km maiores que zero; duração pode ficar vazia.", android.widget.Toast.LENGTH_LONG).show()
+                    return@panelButton
+                }
+                removeManualEntry(); onSave(fare, km, mins)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            panel.addView(buttons)
+            panel.addView(panelButton("Ler oferta atual", Color.rgb(42,75,120)) { removeManualEntry(); onScanOffer() }.apply { setPadding(dp(service, 8), dp(service, 8), dp(service, 8), dp(service, 8)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(service, 7) })
+            val params = WindowManager.LayoutParams(
+                service.resources.displayMetrics.widthPixels - dp(service, 24),
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+                softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+            }
+            try { wm.addView(panel, params); windowManager = wm; manualEntryView = panel }
+            catch (_: Exception) { android.widget.Toast.makeText(service, "Não consegui abrir o registro. Verifique a permissão da bolha.", android.widget.Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    private fun removeManualEntry() {
+        try { manualEntryView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
+        manualEntryView = null
     }
 
     fun setOcrMode(service: AccessibilityService, active: Boolean) {
@@ -523,6 +608,7 @@ internal object OverlayManager {
     fun hide(service: AccessibilityService) {
         handler.post {
             removeResult()
+            removeManualEntry()
             try { bubbleView?.let { windowManager?.removeView(it) } } catch (_: Exception) { }
             bubbleView = null
             windowManager = null

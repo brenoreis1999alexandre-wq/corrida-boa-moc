@@ -117,7 +117,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         handler.removeCallbacks(continuousOcrLoop)
         handler.removeCallbacks(ninetyNinePollLoop)
         if (monitoringEnabled() && Settings.canDrawOverlays(this)) {
-            OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
+            OverlayManager.showFloatingButton(this, { openManualRideEntry() }, { toggleContinuousOcr() })
             val continuous = settings.getBoolean(Prefs.OCR_CONTINUOUS, false)
             OverlayManager.setOcrMode(this, continuous)
             if (continuous && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -147,7 +147,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             return
         }
         if (Settings.canDrawOverlays(this)) {
-            OverlayManager.showFloatingButton(this, { rereadCurrentOffer() }, { toggleContinuousOcr() })
+            OverlayManager.showFloatingButton(this, { openManualRideEntry() }, { toggleContinuousOcr() })
         }
         val root = rootInActiveWindow
         if (root?.packageName?.toString() != pkg) return
@@ -212,6 +212,56 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val beforeFare = text.substring(0, priceStart.coerceIn(0, text.length))
         NINETY_NINE_PAYMENT_MARKER.findAll(beforeFare).lastOrNull()?.let { return it.range.first }
         return NINETY_NINE_SERVICE_TYPE_MARKER.findAll(beforeFare).lastOrNull()?.range?.first ?: priceStart
+    }
+
+    private fun openManualRideEntry() {
+        if (!monitoringEnabled()) {
+            showScanMessage("Ligue o monitoramento para registrar uma corrida pela bolha.", OverlayManager.WARNING)
+            return
+        }
+        OverlayManager.showManualRideEntry(
+            this,
+            onSave = { fare, totalKm, minutes -> saveManualRide(fare, totalKm, minutes) },
+            onScanOffer = { rereadCurrentOffer() }
+        )
+    }
+
+    private fun saveManualRide(fare: Double, totalKm: Double, minutes: Double) {
+        val vehicleType = settings.getString(Prefs.VEHICLE_TYPE, if (settings.getBoolean(Prefs.ELECTRIC_VEHICLE, false)) "electric" else "fuel")
+        val usesFuel = vehicleType == "fuel" || vehicleType == "hybrid"
+        val usesElectric = vehicleType == "electric" || vehicleType == "hybrid"
+        val fuelPerKm = if (usesFuel) settings.getFloat(Prefs.GAS, 6.20f).toDouble() / max(0.1, settings.getFloat(Prefs.CONSUMO, 12f).toDouble()) else 0.0
+        val electricityPerKm = if (usesElectric) settings.getFloat(Prefs.ELECTRIC_PRICE, 1f).toDouble() * max(0.1, settings.getFloat(Prefs.ELECTRIC_CONSUMPTION, 18f).toDouble()) / 100.0 else 0.0
+        val energyCost = totalKm * (fuelPerKm + electricityPerKm)
+        val monthlyFixed = settings.getFloat(Prefs.MONTHLY_FIXED, 0f).toDouble() + settings.getFloat(Prefs.MONTHLY_OTHER, 0f).toDouble()
+        val monthlyKm = settings.getFloat(Prefs.MONTHLY_KM, 0f).toDouble()
+        if (monthlyFixed > 0.0 && monthlyKm <= 0.0) {
+            showScanMessage("Cadastre os quilômetros rodados por mês na Calculadora para incluir seus custos mensais antes de salvar a corrida.", OverlayManager.WARNING)
+            return
+        }
+        val monthlyCost = if (monthlyFixed > 0.0) totalKm * monthlyFixed / monthlyKm else 0.0
+        val net = fare - energyCost - monthlyCost
+        val grossKm = fare / totalKm
+        val grossMinute = if (minutes > 0.0) fare / minutes else 0.0
+        val grossHour = if (minutes > 0.0) fare * 60.0 / minutes else 0.0
+        val netKm = net / totalKm
+        val netMinute = if (minutes > 0.0) net / minutes else 0.0
+        val netHour = if (minutes > 0.0) net * 60.0 / minutes else 0.0
+        val status = if (net > 0.0) OverlayManager.GOOD else OverlayManager.BAD
+        val record = RideRecord(
+            createdAt = System.currentTimeMillis(), pickup = "Registro manual", dropoff = "Corrida concluída",
+            fare = fare, pickupKm = 0.0, tripKm = totalKm, minutes = minutes,
+            fuelCost = energyCost, monthlyCost = monthlyCost, net = net,
+            grossHour = grossHour, grossKm = grossKm, grossMinute = grossMinute,
+            netHour = netHour, netKm = netKm, netMinute = netMinute, status = status,
+            completed = true, manualEntry = true
+        )
+        runCatching { history.save(record) }.onSuccess {
+            android.widget.Toast.makeText(this, "Corrida salva no histórico como concluída.", android.widget.Toast.LENGTH_LONG).show()
+            showScanMessage("Corrida salva: ${fare.money()} em ${totalKm.oneDecimal()} km. Entrou nos ganhos realizados.", OverlayManager.GOOD)
+        }.onFailure {
+            android.widget.Toast.makeText(this, "Não consegui salvar a corrida no histórico.", android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun requestOfferRead(pkg: String, offer: OfferContext) {
@@ -569,9 +619,13 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val totalKm = kmBusca + kmViagem
         if (totalKm <= 0.0 || tempoTotal <= 0.0) return
 
-        val isElectric = settings.getBoolean(Prefs.ELECTRIC_VEHICLE, false)
-        val energyPrice = if (isElectric) settings.getFloat(Prefs.ELECTRIC_PRICE, 1.00f).toDouble() else settings.getFloat(Prefs.GAS, 6.20f).toDouble()
-        val consumption = max(0.1, if (isElectric) settings.getFloat(Prefs.ELECTRIC_CONSUMPTION, 18f).toDouble() else settings.getFloat(Prefs.CONSUMO, 12f).toDouble())
+        val vehicleType = settings.getString(Prefs.VEHICLE_TYPE, if (settings.getBoolean(Prefs.ELECTRIC_VEHICLE, false)) "electric" else "fuel")
+        val isElectric = vehicleType == "electric"
+        val isHybrid = vehicleType == "hybrid"
+        val fuelPrice = settings.getFloat(Prefs.GAS, 6.20f).toDouble()
+        val fuelConsumption = max(0.1, settings.getFloat(Prefs.CONSUMO, 12f).toDouble())
+        val electricityPrice = settings.getFloat(Prefs.ELECTRIC_PRICE, 1.00f).toDouble()
+        val electricConsumption = max(0.1, settings.getFloat(Prefs.ELECTRIC_CONSUMPTION, 18f).toDouble())
         val monthlyFixed = settings.getFloat(Prefs.MONTHLY_FIXED, 0f).toDouble()
         val monthlyOther = settings.getFloat(Prefs.MONTHLY_OTHER, 0f).toDouble()
         val monthlyDistance = settings.getFloat(Prefs.MONTHLY_KM, 0f).toDouble()
@@ -585,7 +639,9 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         val floorPerKm = settings.getFloat(Prefs.FLOOR_KM, 1.50f).toDouble()
         val floorPerHour = settings.getFloat(Prefs.FLOOR_HOUR, 31f).toDouble()
         val floorPerMinute = settings.getFloat(Prefs.FLOOR_MINUTE, 0.49f).toDouble()
-        val fuelCost = if (isElectric) totalKm * energyPrice * consumption / 100.0 else totalKm * energyPrice / consumption
+        val fuelCostPerKm = if (isElectric || isHybrid) 0.0 else fuelPrice / fuelConsumption
+        val electricCostPerKm = if (isElectric || isHybrid) electricityPrice * electricConsumption / 100.0 else 0.0
+        val fuelCost = totalKm * (fuelCostPerKm + electricCostPerKm)
         val monthlyCost = if (monthlyDistance > 0.0) totalKm * (monthlyFixed + monthlyOther) / monthlyDistance else 0.0
         val totalCosts = fuelCost + monthlyCost
         val profit = fare - totalCosts
@@ -710,7 +766,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             kmStatus, hourStatus, minuteStatus, recommendationStatus,
             smartNote = smartNote,
             onUserDecision = decisionHandler,
-            energyLabel = if (isElectric) "Energia" else "Gasolina"
+            energyLabel = when { isHybrid -> "Gasolina + elétrica"; isElectric -> "Energia"; else -> "Gasolina" }
         )
         // Start address lookup only after the instant offer card and financial recommendation are shown.
         // A late result refreshes only if this exact offer is still active; it never creates another history row.

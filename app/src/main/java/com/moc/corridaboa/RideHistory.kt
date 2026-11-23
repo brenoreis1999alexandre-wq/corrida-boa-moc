@@ -24,7 +24,8 @@ internal data class RideRecord(
     val netMinute: Double,
     val status: Int,
     val id: Long = 0L,
-    val completed: Boolean = false
+    val completed: Boolean = false,
+    val manualEntry: Boolean = false
 )
 
 
@@ -35,7 +36,7 @@ internal data class ObservedOfferPattern(
     val averageGrossHour: Double
 )
 
-internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrida_boa_history.db", null, 4) {
+internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrida_boa_history.db", null, 5) {
     private val duplicateWindowMs = 180_000L
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -58,7 +59,8 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
             net_km REAL NOT NULL,
             net_minute REAL NOT NULL,
             status INTEGER NOT NULL,
-            completed INTEGER NOT NULL DEFAULT 0
+            completed INTEGER NOT NULL DEFAULT 0,
+            manual_entry INTEGER NOT NULL DEFAULT 0
         )""".trimIndent())
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_offers_created_at ON offers(created_at)")
     }
@@ -67,12 +69,13 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
         if (oldVersion < 2) db.execSQL("ALTER TABLE offers ADD COLUMN monthly_cost REAL NOT NULL DEFAULT 0")
         if (oldVersion < 3) db.execSQL("CREATE INDEX IF NOT EXISTS idx_offers_created_at ON offers(created_at)")
         if (oldVersion < 4) db.execSQL("ALTER TABLE offers ADD COLUMN completed INTEGER NOT NULL DEFAULT 0")
+        if (oldVersion < 5) db.execSQL("ALTER TABLE offers ADD COLUMN manual_entry INTEGER NOT NULL DEFAULT 0")
     }
 
     fun save(r: RideRecord) {
         val db = writableDatabase
         val duplicateStart = (r.createdAt - duplicateWindowMs).coerceAtLeast(0L)
-        val isRecentDuplicate = db.query(
+        val isRecentDuplicate = !r.manualEntry && db.query(
             "offers", arrayOf("id"),
             "created_at >= ? AND created_at <= ? AND ABS(fare - ?) <= 0.005 AND ABS(pickup_km - ?) <= 0.05 AND ABS(trip_km - ?) <= 0.05 AND LOWER(pickup) = LOWER(?) AND LOWER(dropoff) = LOWER(?)",
             arrayOf(duplicateStart.toString(), r.createdAt.toString(), r.fare.toString(), r.pickupKm.toString(), r.tripKm.toString(), r.pickup, r.dropoff),
@@ -86,6 +89,8 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
             put("gross_hour", r.grossHour); put("gross_km", r.grossKm); put("gross_minute", r.grossMinute)
             put("net_hour", r.netHour); put("net_km", r.netKm); put("net_minute", r.netMinute)
             put("status", r.status)
+            put("completed", if (r.completed) 1 else 0)
+            put("manual_entry", if (r.manualEntry) 1 else 0)
         }
         db.insert("offers", null, values)
     }
@@ -131,7 +136,8 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
                     c.getDouble(c.getColumnIndexOrThrow("net_minute")),
                     c.getInt(c.getColumnIndexOrThrow("status")),
                     c.getLong(c.getColumnIndexOrThrow("id")),
-                    c.getInt(c.getColumnIndexOrThrow("completed")) != 0
+                    c.getInt(c.getColumnIndexOrThrow("completed")) != 0,
+                    c.getInt(c.getColumnIndexOrThrow("manual_entry")) != 0
                 )
             }
         }
@@ -145,7 +151,7 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
         if (key.isBlank() || key == normalizeArea("Destino não identificado")) return 0
         var count = 0
         readableDatabase.query(
-            "offers", arrayOf("created_at", "dropoff"), null, null, null, null, "created_at DESC", limit.toString()
+            "offers", arrayOf("created_at", "dropoff"), "manual_entry = 0", null, null, null, "created_at DESC", limit.toString()
         ).use { c ->
             while (c.moveToNext()) {
                 if (normalizeArea(c.getString(1) ?: "") != key) continue
@@ -172,7 +178,7 @@ internal class RideHistory(context: Context) : SQLiteOpenHelper(context, "corrid
         var grossHour = 0.0
         readableDatabase.query(
             "offers", arrayOf("created_at", "dropoff", "net", "gross_km", "gross_hour"),
-            null, null, null, null, "created_at DESC", "3000"
+            "manual_entry = 0", null, null, null, "created_at DESC", "3000"
         ).use { c ->
             while (c.moveToNext()) {
                 if (normalizeArea(c.getString(1) ?: "") != key) continue

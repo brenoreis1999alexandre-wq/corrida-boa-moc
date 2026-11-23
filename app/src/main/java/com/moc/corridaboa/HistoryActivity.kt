@@ -23,7 +23,7 @@ class HistoryActivity : Activity() {
             setBackgroundColor(Color.rgb(15, 17, 21))
         }
         setContentView(ScrollView(this).apply { addView(list) })
-        list.addView(label("Histórico de ofertas", 24, Color.WHITE, true))
+        list.addView(label("Histórico de corridas e ofertas", 24, Color.WHITE, true))
         list.addView(label("Salvo somente neste aparelho", 14, Color.LTGRAY))
         list.addView(Button(this).apply {
             text = "Voltar"
@@ -40,13 +40,13 @@ class HistoryActivity : Activity() {
     }
 
     private fun recordCard(r: RideRecord): TextView {
-        val status = when (r.status) {
+        val status = if (r.manualEntry) "CORRIDA CONCLUÍDA • REGISTRO MANUAL" else when (r.status) {
             OverlayManager.GOOD -> "PEGAR CORRIDA"
             OverlayManager.MAYBE -> "AVALIAR CORRIDA"
             OverlayManager.BAD -> "NÃO PEGAR CORRIDA"
             else -> "LEITURA INCOMPLETA"
         }
-        val color = when (r.status) {
+        val color = if (r.manualEntry) Color.rgb(0, 210, 110) else when (r.status) {
             OverlayManager.GOOD -> Color.rgb(0, 210, 110)
             OverlayManager.MAYBE -> Color.rgb(255, 205, 45)
             else -> Color.rgb(255, 95, 85)
@@ -56,13 +56,12 @@ class HistoryActivity : Activity() {
         val dropoff = r.dropoff.ifBlank { "Destino não identificado" }
         val summary = """$time
 $status
-Origem: $pickup
-Destino: $dropoff
-Oferta: ${r.fare.money()}  •  Buscar: ${r.pickupKm.oneDecimal()} km  •  Viagem: ${r.tripKm.oneDecimal()} km
-Total: ${(r.pickupKm + r.tripKm).oneDecimal()} km  •  ${r.minutes.oneDecimal()} min
+${if (r.manualEntry) "Corrida concluída, registro manual" else "Origem: $pickup\nDestino: $dropoff"}
+${if (r.manualEntry) "Valor recebido: ${r.fare.money()}  •  Rodado: ${r.tripKm.oneDecimal()} km" else "Oferta: ${r.fare.money()}  •  Buscar: ${r.pickupKm.oneDecimal()} km  •  Viagem: ${r.tripKm.oneDecimal()} km  •  Total: ${(r.pickupKm + r.tripKm).oneDecimal()} km"}
+Duração: ${if (r.minutes > 0.0) "${r.minutes.oneDecimal()} min" else "não informada"}
 Energia/combustível: ${r.fuelCost.money()}  •  Custos mensais rateados: ${r.monthlyCost.money()}
-Lucro estimado: ${r.net.money()}
-Valores brutos da oferta: ${r.grossKm.money()}/km  •  ${r.grossHour.money()}/h  •  ${r.grossMinute.money()}/min"""
+${if (r.manualEntry) "Lucro estimado no registro" else "Lucro estimado"}: ${r.net.money()}
+${if (r.manualEntry) "Valores brutos da corrida" else "Valores brutos da oferta"}: ${r.grossKm.money()}/km  •  ${r.grossHour.money()}/h  •  ${r.grossMinute.money()}/min"""
         return TextView(this).apply {
             text = summary
             textSize = 14f
