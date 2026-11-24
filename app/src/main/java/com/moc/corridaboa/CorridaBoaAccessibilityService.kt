@@ -67,10 +67,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                 val treeOffer = findOfferContext(root, treeText, is99)
                 if (is99 && treeOffer != null) {
                     if (noteOfferVisible(activePackage, treeOffer)) analyzeScreen(activePackage, treeOffer.text, manual = false)
-                } else if (treeOffer != null) requestOfferRead(activePackage, treeOffer, treeText)
+                } else if (treeOffer != null) requestOfferRead(activePackage, treeOffer)
                 else {
                     if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
-                    captureVisibleScreen(manual = false, sourcePackage = activePackage, suspectedOffer = hasOfferTextSignal(treeText, is99))
+                    captureVisibleScreen(manual = false, sourcePackage = activePackage)
                 }
             }
             handler.postDelayed(this, 800)
@@ -96,7 +96,7 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
                         (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText))) {
                         noteNoOfferVisible()
                     }
-                    captureVisibleScreen(manual = false, sourcePackage = pkg, suspectedOffer = hasOfferTextSignal(treeText, is99))
+                    captureVisibleScreen(manual = false, sourcePackage = pkg)
                 }
             }
             handler.postDelayed(this, when {
@@ -162,10 +162,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             // use its isolated card subtree directly instead of requiring a screen capture.
             if (noteOfferVisible(pkg, treeOffer)) analyzeScreen(pkg, treeOffer.text, manual = false, demandRawText = treeText)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && treeOffer != null) {
-            requestOfferRead(pkg, treeOffer, treeText)
+            requestOfferRead(pkg, treeOffer)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) noteNoOfferVisible()
-            captureVisibleScreen(manual = false, sourcePackage = pkg, suspectedOffer = hasOfferTextSignal(treeText, is99))
+            captureVisibleScreen(manual = false, sourcePackage = pkg)
         } else if (treeOffer != null) {
             if (noteOfferVisible(pkg, treeOffer)) analyzeScreen(pkg, treeOffer.text, manual = false, demandRawText = treeText)
         } else if (!OFFER_ACTION.containsMatchIn(treeText) && !PRICE.containsMatchIn(treeText)) {
@@ -174,10 +174,6 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
     }
 
     private fun is99Package(pkg: String): Boolean = pkg in NINETY_NINE_PACKAGES
-
-    private fun hasOfferTextSignal(text: String, is99: Boolean): Boolean =
-        PRICE.containsMatchIn(text) || OFFER_ACTION.containsMatchIn(text) || ROUTE_HEADER.containsMatchIn(text) ||
-            (is99 && hasActionless99CardMarker(text))
 
     /** Parse the flat accessibility text first; only walk the node tree if the complete offer is not found. */
     private fun findOfferContext(root: AccessibilityNodeInfo?, text: String, is99: Boolean): OfferContext? {
@@ -223,23 +219,10 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
             showScanMessage("Ligue o monitoramento para registrar uma corrida pela bolha.", OverlayManager.WARNING)
             return
         }
-        val recentRecords = runCatching { history.latest(300) }.getOrDefault(emptyList())
-        val lastCompletedAddress = recentRecords.firstOrNull {
-            it.manualEntry && it.dropoff.isNotBlank() && it.dropoff != "Endereço não informado"
-        }?.dropoff.orEmpty()
-        val lastDetectedRoute = recentRecords.firstOrNull { !it.manualEntry }?.let { record ->
-            listOf(record.pickup, record.dropoff).filter { it.isNotBlank() }.joinToString(" → ")
-        }.orEmpty()
-        val lastAddress = lastCompletedAddress.ifBlank { lastDetectedRoute }
-        val addressCaption = when {
-            lastCompletedAddress.isNotBlank() -> "Endereço da última corrida salva: "
-            lastDetectedRoute.isNotBlank() -> "Última rota lida (confirme: pode ser oferta não aceita): "
-            else -> "Endereço da última corrida: "
-        }
+        val lastManualAddress = runCatching { history.latest(300).firstOrNull { it.manualEntry }?.dropoff.orEmpty() }.getOrDefault("")
         OverlayManager.showManualRideEntry(
             this,
-            lastRideAddress = lastAddress,
-            lastAddressCaption = addressCaption,
+            lastRideAddress = lastManualAddress,
             onSave = { fare, totalKm, minutes, address -> saveManualRide(fare, totalKm, minutes, address) },
             onScanOffer = { rereadCurrentOffer() }
         )
@@ -283,11 +266,15 @@ class CorridaBoaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun requestOfferRead(pkg: String, offer: OfferContext, visibleScreenText: String = offer.text) {
-        // The parser only returns a payout paired with one isolated, complete two-leg route.
-        // Use that verified Accessibility card immediately instead of waiting for a full-screen OCR.
+    private fun requestOfferRead(pkg: String, offer: OfferContext) {
         if (noteOfferVisible(pkg, offer)) {
-            analyzeScreen(pkg, offer.text, manual = false, demandRawText = visibleScreenText)
+            lastOcrRequestAt = 0L
+            val requestGeneration = screenGeneration
+            handler.postDelayed({
+                if (requestGeneration == screenGeneration) {
+                    captureVisibleScreen(manual = false, sourcePackage = pkg, force = true)
+                }
+            }, 35)
         }
     }
 
