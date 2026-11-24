@@ -144,6 +144,7 @@ internal object OverlayManager {
     fun showManualRideEntry(
         service: AccessibilityService,
         lastRideAddress: String,
+        lastAddressCaption: String,
         onSave: (Double, Double, Double, String) -> Unit,
         onScanOffer: () -> Unit
     ) {
@@ -165,18 +166,19 @@ internal object OverlayManager {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
             panel.addView(TextView(service).apply {
-                text = "Último endereço salvo: ${lastRideAddress.ifBlank { "ainda não informado" }}"
+                text = "$lastAddressCaption${lastRideAddress.ifBlank { "ainda não informado" }}"
                 textSize = 12f; setTextColor(Color.rgb(157, 208, 255)); setPadding(0, dp(service, 5), 0, dp(service, 4))
             })
             panel.addView(TextView(service).apply {
-                text = "Informe valor recebido, distância total (incluindo a ida para buscar o passageiro) e, se quiser, o endereço. Só entra no faturamento depois de salvar."
+                text = "Informe valor recebido e km totais (inclusive a busca); confira o endereço preenchido. Só conta no faturamento depois de salvar."
                 textSize = 12f; setTextColor(Color.rgb(205, 216, 234)); setPadding(0, 0, 0, dp(service, 6))
             })
-            fun field(label: String, hint: String): EditText {
+            fun field(label: String, hint: String, initialValue: String = ""): EditText {
                 panel.addView(TextView(service).apply { text = label; textSize = 12f; setTextColor(Color.rgb(205,216,234)) })
                 return EditText(service).apply {
                     inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                     setSingleLine(true); this.hint = hint
+                    if (initialValue.isNotBlank()) setText(initialValue)
                     textSize = 16f; setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY)
                     setPadding(dp(service, 10), dp(service, 5), dp(service, 10), dp(service, 5))
                     background = GradientDrawable().apply { setColor(Color.rgb(39,47,63)); cornerRadius = dp(service, 9).toFloat() }
@@ -186,7 +188,7 @@ internal object OverlayManager {
             val amount = field("Valor recebido (R$)", "Ex.: 28,50")
             val distance = field("Quilômetros rodados na corrida", "Ex.: 12,4")
             val minutes = field("Duração em minutos (opcional)", "Ex.: 25")
-            val address = field("Endereço ou rota da corrida (opcional)", "Ex.: Centro → Ibituruna")
+            val address = field("Endereço ou rota da corrida (confirme/edite)", "Ex.: Centro → Ibituruna", lastRideAddress)
             val buttons = LinearLayout(service).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(service, 7), 0, 0) }
             fun panelButton(title: String, color: Int, action: () -> Unit) = TextView(service).apply {
                 text = title; textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
